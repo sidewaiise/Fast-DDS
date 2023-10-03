@@ -17,6 +17,8 @@
  *
  */
 
+#include <fastdds/rtps/common/EntityId_t.hpp>
+#include <fastdds/rtps/common/Guid.h>
 #include <fastdds/rtps/messages/MessageReceiver.h>
 
 #include <cassert>
@@ -61,7 +63,7 @@ MessageReceiver::MessageReceiver(
     (void)rec_buffer_size;
     EPROSIMA_LOG_INFO(RTPS_MSG_IN, "Created with CDRMessage of size: " << rec_buffer_size);
 
-#if HAVE_SECURITY
+#if HAVE_SECURITY && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
     if (participant->is_secure())
     {
         process_data_message_function_ = std::bind(
@@ -81,7 +83,7 @@ MessageReceiver::MessageReceiver(
     }
     else
     {
-#endif // if HAVE SECURITY
+#endif // if HAVE_SECURITY && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
     process_data_message_function_ = std::bind(
         &MessageReceiver::process_data_message_without_security,
         this,
@@ -96,10 +98,10 @@ MessageReceiver::MessageReceiver(
         std::placeholders::_3,
         std::placeholders::_4,
         std::placeholders::_5);
-#if HAVE_SECURITY
+#if HAVE_SECURITY && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 }
 
-#endif // if HAVE SECURITY
+#endif // if HAVE_SECURITY && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 }
 
 MessageReceiver::~MessageReceiver()
@@ -109,7 +111,7 @@ MessageReceiver::~MessageReceiver()
     assert(associated_readers_.empty());
 }
 
- #if HAVE_SECURITY
+ #if HAVE_SECURITY && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 void MessageReceiver::process_data_message_with_security(
         const EntityId_t& reader_id,
         CacheChange_t& change)
@@ -189,7 +191,7 @@ void MessageReceiver::process_data_fragment_message_with_security(
     findAllReaders(reader_id, process_message);
 }
 
-#endif // if HAVE SECURITY
+#endif // if HAVE_SECURITY && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 
 void MessageReceiver::process_data_message_without_security(
         const EntityId_t& reader_id,
@@ -328,11 +330,13 @@ void MessageReceiver::processCDRMsg(
     GuidPrefix_t participantGuidPrefix = participant_->getGuid().guidPrefix;
 #endif // ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 
-#if HAVE_SECURITY
+#if HAVE_SECURITY && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
     security::SecurityManager& security = participant_->security_manager();
     CDRMessage_t* auxiliary_buffer = &crypto_msg_;
     int decode_ret = 0;
-#endif // if HAVE_SECURITY
+#endif // if HAVE_SECURITY && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+
+    bool ignore_submessages = false;
 
     {
         std::lock_guard<eprosima::shared_mutex> guard(mtx_);
@@ -349,9 +353,16 @@ void MessageReceiver::processCDRMsg(
             return;
         }
 
-        notify_network_statistics(source_locator, reception_locator, msg);
+#if !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+        ignore_submessages = participant_->is_participant_ignored(source_guid_prefix_);
+#endif  // if !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 
-#if HAVE_SECURITY
+        if (!ignore_submessages)
+        {
+            notify_network_statistics(source_locator, reception_locator, msg);
+        }
+
+#if HAVE_SECURITY && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
         decode_ret = security.decode_rtps_message(*msg, *auxiliary_buffer, source_guid_prefix_);
 
         if (decode_ret < 0)
@@ -367,7 +378,7 @@ void MessageReceiver::processCDRMsg(
             msg = auxiliary_buffer;
             auxiliary_buffer = &crypto_submsg_;
         }
-#endif // if HAVE_SECURITY
+#endif // if HAVE_SECURITY && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
     }
 
     // Loop until there are no more submessages
@@ -375,11 +386,13 @@ void MessageReceiver::processCDRMsg(
     bool valid;
     SubmessageHeader_t submsgh; //Current submessage header
 
+    bool ignore_current_submessage;
+
     while (msg->pos < msg->length)// end of the message
     {
         CDRMessage_t* submessage = msg;
 
-#if HAVE_SECURITY
+#if HAVE_SECURITY && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
         decode_ret = security.decode_rtps_submessage(*msg, *auxiliary_buffer, source_guid_prefix_);
 
         if (decode_ret < 0)
@@ -391,7 +404,7 @@ void MessageReceiver::processCDRMsg(
         {
             submessage = auxiliary_buffer;
         }
-#endif // if HAVE_SECURITY
+#endif // if HAVE_SECURITY && !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 
         //First 4 bytes must contain: ID | flags | octets to next header
         if (!readSubmessageHeader(submessage, &submsgh))
@@ -402,124 +415,147 @@ void MessageReceiver::processCDRMsg(
         valid = true;
         uint32_t next_msg_pos = submessage->pos;
         next_msg_pos += (submsgh.submessageLength + 3u) & ~3u;
-        switch (submsgh.submessageId)
-        {
-            case DATA:
-            {
-                if (dest_guid_prefix_ != participantGuidPrefix)
-                {
-                    EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "Data Submsg ignored, DST is another RTPSParticipant");
-                }
-                else
-                {
-                    EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "Data Submsg received, processing.");
-                    valid = proc_Submsg_Data(submessage, &submsgh);
-                }
-                break;
-            }
-            case DATA_FRAG:
-                if (dest_guid_prefix_ != participantGuidPrefix)
-                {
-                    EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "DataFrag Submsg ignored, DST is another RTPSParticipant");
-                }
-                else
-                {
-                    EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "DataFrag Submsg received, processing.");
-                    valid = proc_Submsg_DataFrag(submessage, &submsgh);
-                }
-                break;
-            case GAP:
-            {
-                if (dest_guid_prefix_ != participantGuidPrefix)
-                {
-                    EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "Gap Submsg ignored, DST is another RTPSParticipant...");
-                }
-                else
-                {
-                    EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "Gap Submsg received, processing...");
-                    valid = proc_Submsg_Gap(submessage, &submsgh);
-                }
-                break;
-            }
-            case ACKNACK:
-            {
-                if (dest_guid_prefix_ != participantGuidPrefix)
-                {
-                    EPROSIMA_LOG_INFO(RTPS_MSG_IN,
-                            IDSTRING "Acknack Submsg ignored, DST is another RTPSParticipant...");
-                }
-                else
-                {
-                    EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "Acknack Submsg received, processing...");
-                    valid = proc_Submsg_Acknack(submessage, &submsgh);
-                }
-                break;
-            }
-            case NACK_FRAG:
-            {
-                if (dest_guid_prefix_ != participantGuidPrefix)
-                {
-                    EPROSIMA_LOG_INFO(RTPS_MSG_IN,
-                            IDSTRING "NackFrag Submsg ignored, DST is another RTPSParticipant...");
-                }
-                else
-                {
-                    EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "NackFrag Submsg received, processing...");
-                    valid = proc_Submsg_NackFrag(submessage, &submsgh);
-                }
-                break;
-            }
-            case HEARTBEAT:
-            {
-                if (dest_guid_prefix_ != participantGuidPrefix)
-                {
-                    EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "HB Submsg ignored, DST is another RTPSParticipant...");
-                }
-                else
-                {
-                    EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "Heartbeat Submsg received, processing...");
-                    valid = proc_Submsg_Heartbeat(submessage, &submsgh);
-                }
-                break;
-            }
-            case HEARTBEAT_FRAG:
-            {
-                if (dest_guid_prefix_ != participantGuidPrefix)
-                {
-                    EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "HBFrag Submsg ignored, DST is another RTPSParticipant...");
-                }
-                else
-                {
-                    EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "HeartbeatFrag Submsg received, processing...");
-                    valid = proc_Submsg_HeartbeatFrag(submessage, &submsgh);
-                }
-                break;
-            }
-            case PAD:
-                EPROSIMA_LOG_WARNING(RTPS_MSG_IN, IDSTRING "PAD messages not yet implemented, ignoring");
-                break;
-            case INFO_DST:
-                EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "InfoDST message received, processing...");
-                valid = proc_Submsg_InfoDST(submessage, &submsgh);
-                break;
-            case INFO_SRC:
-                EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "InfoSRC message received, processing...");
-                valid = proc_Submsg_InfoSRC(submessage, &submsgh);
-                break;
-            case INFO_TS:
-            {
-                EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "InfoTS Submsg received, processing...");
-                valid = proc_Submsg_InfoTS(submessage, &submsgh);
-                break;
-            }
-            case INFO_REPLY:
-                break;
-            case INFO_REPLY_IP4:
-                break;
-            default:
-                break;
-        }
 
+        // We ignore submessage if the source participant is to be ignored, unless the submessage king is INFO_SRC
+        // which triggers a reevaluation of the flag.
+        ignore_current_submessage = ignore_submessages &&
+                submsgh.submessageId != INFO_SRC;
+
+        if (!ignore_current_submessage)
+        {
+
+            switch (submsgh.submessageId)
+            {
+                case DATA:
+                {
+                    if (dest_guid_prefix_ != participantGuidPrefix)
+                    {
+                        EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "Data Submsg ignored, DST is another RTPSParticipant");
+                    }
+                    else
+                    {
+                        EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "Data Submsg received, processing.");
+                        EntityId_t writerId = c_EntityId_Unknown;
+                        valid = proc_Submsg_Data(submessage, &submsgh, writerId);
+#if !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+                        if (valid && writerId == c_EntityId_SPDPWriter)
+                        {
+                            ignore_submessages = participant_->is_participant_ignored(source_guid_prefix_);
+                        }
+#endif  // if !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+
+                    }
+                    break;
+                }
+                case DATA_FRAG:
+                    if (dest_guid_prefix_ != participantGuidPrefix)
+                    {
+                        EPROSIMA_LOG_INFO(RTPS_MSG_IN,
+                                IDSTRING "DataFrag Submsg ignored, DST is another RTPSParticipant");
+                    }
+                    else
+                    {
+                        EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "DataFrag Submsg received, processing.");
+                        valid = proc_Submsg_DataFrag(submessage, &submsgh);
+                    }
+                    break;
+                case GAP:
+                {
+                    if (dest_guid_prefix_ != participantGuidPrefix)
+                    {
+                        EPROSIMA_LOG_INFO(RTPS_MSG_IN,
+                                IDSTRING "Gap Submsg ignored, DST is another RTPSParticipant...");
+                    }
+                    else
+                    {
+                        EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "Gap Submsg received, processing...");
+                        valid = proc_Submsg_Gap(submessage, &submsgh);
+                    }
+                    break;
+                }
+                case ACKNACK:
+                {
+                    if (dest_guid_prefix_ != participantGuidPrefix)
+                    {
+                        EPROSIMA_LOG_INFO(RTPS_MSG_IN,
+                                IDSTRING "Acknack Submsg ignored, DST is another RTPSParticipant...");
+                    }
+                    else
+                    {
+                        EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "Acknack Submsg received, processing...");
+                        valid = proc_Submsg_Acknack(submessage, &submsgh);
+                    }
+                    break;
+                }
+                case NACK_FRAG:
+                {
+                    if (dest_guid_prefix_ != participantGuidPrefix)
+                    {
+                        EPROSIMA_LOG_INFO(RTPS_MSG_IN,
+                                IDSTRING "NackFrag Submsg ignored, DST is another RTPSParticipant...");
+                    }
+                    else
+                    {
+                        EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "NackFrag Submsg received, processing...");
+                        valid = proc_Submsg_NackFrag(submessage, &submsgh);
+                    }
+                    break;
+                }
+                case HEARTBEAT:
+                {
+                    if (dest_guid_prefix_ != participantGuidPrefix)
+                    {
+                        EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "HB Submsg ignored, DST is another RTPSParticipant...");
+                    }
+                    else
+                    {
+                        EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "Heartbeat Submsg received, processing...");
+                        valid = proc_Submsg_Heartbeat(submessage, &submsgh);
+                    }
+                    break;
+                }
+                case HEARTBEAT_FRAG:
+                {
+                    if (dest_guid_prefix_ != participantGuidPrefix)
+                    {
+                        EPROSIMA_LOG_INFO(RTPS_MSG_IN,
+                                IDSTRING "HBFrag Submsg ignored, DST is another RTPSParticipant...");
+                    }
+                    else
+                    {
+                        EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "HeartbeatFrag Submsg received, processing...");
+                        valid = proc_Submsg_HeartbeatFrag(submessage, &submsgh);
+                    }
+                    break;
+                }
+                case PAD:
+                    EPROSIMA_LOG_WARNING(RTPS_MSG_IN, IDSTRING "PAD messages not yet implemented, ignoring");
+                    break;
+                case INFO_DST:
+                    EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "InfoDST message received, processing...");
+                    valid = proc_Submsg_InfoDST(submessage, &submsgh);
+                    break;
+                case INFO_SRC:
+                    EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "InfoSRC message received, processing...");
+                    valid = proc_Submsg_InfoSRC(submessage, &submsgh);
+#if !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+                    ignore_submessages = participant_->is_participant_ignored(source_guid_prefix_);
+#endif  // if !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+                    break;
+                case INFO_TS:
+                {
+                    EPROSIMA_LOG_INFO(RTPS_MSG_IN, IDSTRING "InfoTS Submsg received, processing...");
+                    valid = proc_Submsg_InfoTS(submessage, &submsgh);
+                    break;
+                }
+                case INFO_REPLY:
+                    break;
+                case INFO_REPLY_IP4:
+                    break;
+                default:
+                    break;
+            }
+        }
         if (!valid || submsgh.is_last)
         {
             break;
@@ -528,9 +564,9 @@ void MessageReceiver::processCDRMsg(
         submessage->pos = next_msg_pos;
     }
 
-#ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+#if !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
     participant_->assert_remote_participant_liveliness(source_guid_prefix_);
-#endif // ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+#endif // if !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 }
 
 bool MessageReceiver::checkRTPSHeader(
@@ -684,7 +720,8 @@ void MessageReceiver::findAllReaders(
 
 bool MessageReceiver::proc_Submsg_Data(
         CDRMessage_t* msg,
-        SubmessageHeader_t* smh) const
+        SubmessageHeader_t* smh,
+        EntityId_t& writerID) const
 {
     eprosima::shared_lock<eprosima::shared_mutex> guard(mtx_);
 
@@ -739,6 +776,8 @@ bool MessageReceiver::proc_Submsg_Data(
     ch.kind = ALIVE;
     ch.writerGUID.guidPrefix = source_guid_prefix_;
     valid &= CDRMessage::readEntityId(msg, &ch.writerGUID.entityId);
+
+    writerID = ch.writerGUID.entityId;
 
     //Get sequence number
     valid &= CDRMessage::readSequenceNumber(msg, &ch.sequenceNumber);
@@ -802,6 +841,8 @@ bool MessageReceiver::proc_Submsg_Data(
             {
                 EPROSIMA_LOG_WARNING(RTPS_MSG_IN, IDSTRING "Serialized Payload value invalid or larger than maximum allowed size"
                         "(" << payload_size << "/" << (msg->length - msg->pos) << ")");
+                ch.serializedPayload.data = nullptr;
+                ch.inline_qos.data = nullptr;
                 return false;
             }
         }
@@ -810,6 +851,8 @@ bool MessageReceiver::proc_Submsg_Data(
             if (payload_size <= 0)
             {
                 EPROSIMA_LOG_WARNING(RTPS_MSG_IN, IDSTRING "Serialized Payload value invalid (" << payload_size << ")");
+                ch.serializedPayload.data = nullptr;
+                ch.inline_qos.data = nullptr;
                 return false;
             }
 
@@ -1056,6 +1099,13 @@ bool MessageReceiver::proc_Submsg_Heartbeat(
     SequenceNumber_t lastSN;
     CDRMessage::readSequenceNumber(msg, &firstSN);
     CDRMessage::readSequenceNumber(msg, &lastSN);
+
+    SequenceNumber_t zeroSN;
+    if (firstSN <= zeroSN)
+    {
+        EPROSIMA_LOG_WARNING(RTPS_MSG_IN, IDSTRING "Invalid Heartbeat received (" << firstSN << " <= 0), ignoring");
+        return false;
+    }
     if (lastSN < firstSN && lastSN != firstSN - 1)
     {
         EPROSIMA_LOG_WARNING(RTPS_MSG_IN, IDSTRING "Invalid Heartbeat received (" << firstSN << ") - (" <<
@@ -1403,8 +1453,10 @@ void MessageReceiver::notify_network_statistics(
 
             StatisticsSubmessageData data;
             read_statistics_submessage(msg, data);
+#if !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
             participant_->on_network_statistics(
                 source_guid_prefix_, source_locator, reception_locator, data, msg_length);
+#endif // if !defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
             break;
         }
 

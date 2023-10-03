@@ -75,7 +75,7 @@ endif()
 
 
 add_executable(BuiltinDataSerializationTests ${BUILTIN_DATA_SERIALIZATION_TESTS_SOURCE})
-target_compile_definitions(BuiltinDataSerializationTests PRIVATE FASTRTPS_NO_LIB
+target_compile_definitions(BuiltinDataSerializationTests PRIVATE
     BOOST_ASIO_STANDALONE
     ASIO_STANDALONE
     $<$<AND:$<NOT:$<BOOL:${WIN32}>>,$<STREQUAL:"${CMAKE_BUILD_TYPE}","Debug">>:__DEBUG>
@@ -91,6 +91,9 @@ target_include_directories(BuiltinDataSerializationTests PRIVATE
 target_link_libraries(BuiltinDataSerializationTests foonathan_memory
     GTest::gmock
     ${CMAKE_DL_LIBS})
+if(QNX)
+    target_link_libraries(BuiltinDataSerializationTests socket)
+endif()
 if(MSVC OR MSVC_IDE)
     target_link_libraries(BuiltinDataSerializationTests ${PRIVACY} fastcdr iphlpapi Shlwapi ws2_32)
 else()

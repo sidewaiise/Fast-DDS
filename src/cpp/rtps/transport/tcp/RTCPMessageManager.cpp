@@ -93,7 +93,8 @@ size_t RTCPMessageManager::sendMessage(
     size_t send = channel->send(nullptr, 0, msg.buffer, msg.length, ec);
     if (send != msg.length || ec)
     {
-        EPROSIMA_LOG_INFO(RTCP, "Bad sent size..." << send << " bytes of " << msg.length << " bytes: " << ec.message());
+        EPROSIMA_LOG_WARNING(RTCP,
+                "Bad sent size..." << send << " bytes of " << msg.length << " bytes: " << ec.message());
         send = 0;
     }
 
@@ -680,11 +681,13 @@ ResponseCode RTCPMessageManager::processKeepAliveResponse(
 ResponseCode RTCPMessageManager::processRTCPMessage(
         std::shared_ptr<TCPChannelResource>& channel,
         octet* receive_buffer,
-        size_t receivedSize)
+        size_t receivedSize,
+        fastrtps::rtps::Endianness_t msg_endian)
 {
     ResponseCode responseCode(RETCODE_OK);
 
     TCPControlMsgHeader controlHeader = *(reinterpret_cast<TCPControlMsgHeader*>(receive_buffer));
+    controlHeader.valid_endianness(msg_endian);
     //memcpy(&controlHeader, receive_buffer, TCPControlMsgHeader::size());
     size_t dataSize = controlHeader.length() - TCPControlMsgHeader::size();
     size_t bufferSize = dataSize + 4;

@@ -53,10 +53,17 @@ public:
      */
     inline void notify()
     {
-        std::unique_lock<Segment::mutex> lock(notification_->notification_mutex);
-        notification_->new_data.store(true);
-        lock.unlock();
-        notification_->notification_cv.notify_all();
+        try
+        {
+            std::unique_lock<Segment::mutex> lock(notification_->notification_mutex);
+            notification_->new_data.store(true);
+            lock.unlock();
+            notification_->notification_cv.notify_all();
+        }
+        catch (const boost::interprocess::interprocess_exception& /*e*/)
+        {
+            // Timeout when locking
+        }
     }
 
     /**
@@ -93,7 +100,7 @@ protected:
 
 #pragma warning(push)
 #pragma warning(disable:4324)
-    struct alignas (uint64_t) Notification
+    struct alignas (8) Notification
     {
         //! CV to wait for new notifications
         Segment::condition_variable notification_cv;
@@ -134,17 +141,18 @@ protected:
     {
         segment_id_ = reader_guid;
         segment_name_ = generate_segment_name(shared_dir, reader_guid);
-
-        uint32_t per_allocation_extra_size = T::compute_per_allocation_extra_size(
-            alignof(Notification), DataSharingNotification::domain_name());
-        uint32_t segment_size = static_cast<uint32_t>(sizeof(Notification)) + per_allocation_extra_size;
-
-        //Open the segment
-        T::remove(segment_name_);
         std::unique_ptr<T> local_segment;
+
         try
         {
-            local_segment = std::unique_ptr<T>(
+            uint32_t per_allocation_extra_size = T::compute_per_allocation_extra_size(
+                alignof(Notification), DataSharingNotification::domain_name());
+            uint32_t segment_size = static_cast<uint32_t>(sizeof(Notification)) + per_allocation_extra_size;
+
+            //Open the segment
+            T::remove(segment_name_);
+
+            local_segment.reset(
                 new T(boost::interprocess::create_only,
                 segment_name_,
                 segment_size + T::EXTRA_SEGMENT_SIZE));

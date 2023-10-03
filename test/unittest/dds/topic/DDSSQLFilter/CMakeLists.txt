@@ -38,7 +38,7 @@ add_executable(DDSSQLFilterTests
     ${DDSSQLFILTER_SOURCES}
     ${DDSSQLFILTER_LIB_SOURCES}
     )
-target_compile_definitions(DDSSQLFilterTests PRIVATE FASTRTPS_NO_LIB
+target_compile_definitions(DDSSQLFilterTests PRIVATE
     $<$<AND:$<NOT:$<BOOL:${WIN32}>>,$<STREQUAL:"${CMAKE_BUILD_TYPE}","Debug">>:__DEBUG>
     $<$<BOOL:${INTERNAL_DEBUG}>:__INTERNALDEBUG> # Internal debug activated.
     )
@@ -53,7 +53,10 @@ target_link_libraries(DDSSQLFilterTests fastcdr foonathan_memory
 add_gtest(DDSSQLFilterTests SOURCES ${DDSSQLFILTERTEST_SOURCES})
 
 # Tests with specific timeout
-set_tests_properties("DDSSQLFilterValueTests.test_filtered_value" PROPERTIES TIMEOUT 500)
+if (GTEST_INDIVIDUAL)
+    # This test does not exist unless it is compiled with GTEST_INDIVIDUAL
+    set_tests_properties("DDSSQLFilterValueTests.test_filtered_value" PROPERTIES TIMEOUT 500)
+endif ()
 
 if(ANDROID)
     set_property(TARGET DDSSQLFilterTests PROPERTY CROSSCOMPILING_EMULATOR "adb;shell;cd;${CMAKE_CURRENT_BINARY_DIR};&&")

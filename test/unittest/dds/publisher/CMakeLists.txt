@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../profiles/test_xml_profiles.xml
-    ${CMAKE_CURRENT_BINARY_DIR}/test_xml_profiles.xml
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../profiles/test_xml_profile.xml
+    ${CMAKE_CURRENT_BINARY_DIR}/test_xml_profile.xml
     COPYONLY)
 
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../profiles/test_xml_profiles_for_string.xml
-        ${CMAKE_CURRENT_BINARY_DIR}/test_xml_profiles_for_string.xml
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../profiles/test_xml_for_string_profile.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/test_xml_for_string_profile.xml
         COPYONLY)
 
 set(PUBLISHERTESTS_SOURCE PublisherTests.cpp)
@@ -255,9 +255,11 @@ set(DATAWRITERTESTS_SOURCE DataWriterTests.cpp
             ${PROJECT_SOURCE_DIR}/src/cpp/rtps/security/logging/Logging.cpp
             ${PROJECT_SOURCE_DIR}/src/cpp/rtps/security/SecurityManager.cpp
             ${PROJECT_SOURCE_DIR}/src/cpp/rtps/security/SecurityPluginFactory.cpp
+            ${PROJECT_SOURCE_DIR}/src/cpp/rtps/builtin/discovery/participant/DS/PDPSecurityInitiatorListener.cpp
             ${PROJECT_SOURCE_DIR}/src/cpp/security/artifact_providers/Pkcs11Provider.cpp
             ${PROJECT_SOURCE_DIR}/src/cpp/security/authentication/PKIDH.cpp
             ${PROJECT_SOURCE_DIR}/src/cpp/security/accesscontrol/Permissions.cpp
+            ${PROJECT_SOURCE_DIR}/src/cpp/security/accesscontrol/DistinguishedName.cpp
             ${PROJECT_SOURCE_DIR}/src/cpp/security/cryptography/AESGCMGMAC.cpp
             ${PROJECT_SOURCE_DIR}/src/cpp/security/cryptography/AESGCMGMAC_KeyExchange.cpp
             ${PROJECT_SOURCE_DIR}/src/cpp/security/cryptography/AESGCMGMAC_KeyFactory.cpp
@@ -310,7 +312,7 @@ if(ANDROID)
 endif()
 
 add_executable(PublisherTests ${PUBLISHERTESTS_SOURCE})
-target_compile_definitions(PublisherTests PRIVATE FASTRTPS_NO_LIB
+target_compile_definitions(PublisherTests PRIVATE
     $<$<AND:$<NOT:$<BOOL:${WIN32}>>,$<STREQUAL:"${CMAKE_BUILD_TYPE}","Debug">>:__DEBUG>
     $<$<BOOL:${INTERNAL_DEBUG}>:__INTERNALDEBUG> # Internal debug activated.
     )
@@ -322,10 +324,13 @@ target_include_directories(PublisherTests PRIVATE
 target_link_libraries(PublisherTests fastrtps fastcdr foonathan_memory
     GTest::gmock
     ${CMAKE_DL_LIBS})
+if(QNX)
+    target_link_libraries(PublisherTests socket)
+endif()
 add_gtest(PublisherTests SOURCES ${PUBLISHERTESTS_SOURCE})
 
 add_executable(DataWriterTests ${DATAWRITERTESTS_SOURCE})
-target_compile_definitions(DataWriterTests PRIVATE FASTRTPS_NO_LIB
+target_compile_definitions(DataWriterTests PRIVATE
     BOOST_ASIO_STANDALONE
     ASIO_STANDALONE
     ASIO_DISABLE_VISIBILITY
@@ -360,6 +365,9 @@ target_link_libraries(DataWriterTests fastcdr foonathan_memory
     $<$<BOOL:${LibP11_FOUND}>:eProsima_p11>  # $<TARGET_NAME_IF_EXISTS:eProsima_p11>
     eProsima_atomic
     )
+if(QNX)
+    target_link_libraries(DataWriterTests socket)
+endif()
 if(MSVC OR MSVC_IDE)
     target_link_libraries(DataWriterTests ${PRIVACY}
         iphlpapi Shlwapi

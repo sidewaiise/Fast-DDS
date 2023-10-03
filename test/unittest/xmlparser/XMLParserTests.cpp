@@ -54,12 +54,15 @@ TEST_F(XMLParserTests, regressions)
 {
     std::unique_ptr<BaseNode> root;
 
-    EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParser::loadXML("regressions/12736.xml", root));
-    EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParser::loadXML("regressions/13418.xml", root));
-    EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParser::loadXML("regressions/13454.xml", root));
-    EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParser::loadXML("regressions/13513.xml", root));
-    EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParser::loadXML("regressions/14456.xml", root));
-    EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParser::loadXML("regressions/15344.xml", root));
+    EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParser::loadXML("regressions/12736_profile_bin.xml", root));
+    EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParser::loadXML("regressions/13418_profile_bin.xml", root));
+    EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParser::loadXML("regressions/13454_profile_bin.xml", root));
+    EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParser::loadXML("regressions/13513_profile_bin.xml", root));
+    EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParser::loadXML("regressions/14456_profile_bin.xml", root));
+    EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParser::loadXML("regressions/15344_profile_bin.xml", root));
+    EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParser::loadXML("regressions/18395_profile_bin.xml", root));
+    EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParser::loadXML("regressions/simple_participant_profiles_nok.xml", root));
+    EXPECT_EQ(XMLP_ret::XML_OK, XMLParser::loadXML("regressions/simple_participant_profiles_ok.xml", root));
 }
 
 TEST_F(XMLParserTests, NoFile)
@@ -89,7 +92,7 @@ TEST_F(XMLParserTests, EmptyString)
 TEST_F(XMLParserTests, WrongName)
 {
     std::unique_ptr<BaseNode> root;
-    ASSERT_EQ(XMLParser::loadXML("test_xml_profiles.xml", root), XMLP_ret::XML_OK);
+    ASSERT_EQ(XMLParser::loadXML("test_xml_profile.xml", root), XMLP_ret::XML_OK);
     ParticipantAttributes participant_atts;
     ASSERT_FALSE(get_participant_attributes(root, participant_atts));
 }
@@ -97,7 +100,7 @@ TEST_F(XMLParserTests, WrongName)
 TEST_F(XMLParserTests, WrongNameBuffer)
 {
     std::ifstream inFile;
-    inFile.open("test_xml_profiles.xml");
+    inFile.open("test_xml_profile.xml");
     std::stringstream strStream;
     strStream << inFile.rdbuf();
     std::unique_ptr<BaseNode> root;
@@ -106,10 +109,57 @@ TEST_F(XMLParserTests, WrongNameBuffer)
     ASSERT_FALSE(get_participant_attributes(root, participant_atts));
 }
 
+/*
+ * Checks the supported and XML validated entity hierarchy
+ */
 TEST_F(XMLParserTests, TypesRooted)
 {
     std::unique_ptr<BaseNode> root;
-    ASSERT_EQ(XMLParser::loadXML("test_xml_profiles_rooted.xml", root), XMLP_ret::XML_OK);
+    ASSERT_EQ(XMLParser::loadXML("test_xml_rooted_profile.xml", root), XMLP_ret::XML_OK);
+
+    ParticipantAttributes participant_atts;
+    bool participant_profile = false;
+    bool publisher_profile   = false;
+    bool subscriber_profile  = false;
+    bool topic_data          = false;
+    for (const auto& root_child : root->getChildren())
+    {
+        if (root_child->getType() == NodeType::PROFILES)
+        {
+            for (const auto& profile : root_child->getChildren())
+            {
+                if (profile->getType() == NodeType::PARTICIPANT)
+                {
+                    participant_profile = true;
+                }
+                else if (profile->getType() == NodeType::PUBLISHER)
+                {
+                    publisher_profile = true;
+                }
+                else if (profile->getType() == NodeType::SUBSCRIBER)
+                {
+                    subscriber_profile = true;
+                }
+                else if (profile->getType() == NodeType::TOPIC)
+                {
+                    topic_data = true;
+                }
+            }
+        }
+    }
+    ASSERT_TRUE(participant_profile);
+    ASSERT_TRUE(publisher_profile);
+    ASSERT_TRUE(subscriber_profile);
+    ASSERT_TRUE(topic_data);
+}
+
+/*
+ * Checks the supported entity hierarchy
+ */
+TEST_F(XMLParserTests, TypesRootedDeprecated)
+{
+    std::unique_ptr<BaseNode> root;
+    ASSERT_EQ(XMLParser::loadXML("test_xml_rooted_deprecated.xml", root), XMLP_ret::XML_OK);
 
     ParticipantAttributes participant_atts;
     bool participant_profile = false;
@@ -147,10 +197,60 @@ TEST_F(XMLParserTests, TypesRooted)
     ASSERT_TRUE(topic_data);
 }
 
+/*
+ * Checks the supported and XML validated entity hierarchy
+ */
 TEST_F(XMLParserTests, TypesRootedBuffer)
 {
     std::ifstream inFile;
-    inFile.open("test_xml_profiles_rooted.xml");
+    inFile.open("test_xml_rooted_profile.xml");
+    std::stringstream strStream;
+    strStream << inFile.rdbuf();
+    std::unique_ptr<BaseNode> root;
+    ASSERT_EQ(XMLParser::loadXML(strStream.str().data(), strStream.str().size(), root), XMLP_ret::XML_OK);
+    ParticipantAttributes participant_atts;
+    bool participant_profile = false;
+    bool publisher_profile   = false;
+    bool subscriber_profile  = false;
+    bool topic_data          = false;
+    for (const auto& root_child : root->getChildren())
+    {
+        if (root_child->getType() == NodeType::PROFILES)
+        {
+            for (const auto& profile : root_child->getChildren())
+            {
+                if (profile->getType() == NodeType::PARTICIPANT)
+                {
+                    participant_profile = true;
+                }
+                else if (profile->getType() == NodeType::PUBLISHER)
+                {
+                    publisher_profile = true;
+                }
+                else if (profile->getType() == NodeType::SUBSCRIBER)
+                {
+                    subscriber_profile = true;
+                }
+                else if (profile->getType() == NodeType::TOPIC)
+                {
+                    topic_data = true;
+                }
+            }
+        }
+    }
+    ASSERT_TRUE(participant_profile);
+    ASSERT_TRUE(publisher_profile);
+    ASSERT_TRUE(subscriber_profile);
+    ASSERT_TRUE(topic_data);
+}
+
+/*
+ * Checks the supported entity hierarchy
+ */
+TEST_F(XMLParserTests, TypesRootedBufferDeprecated)
+{
+    std::ifstream inFile;
+    inFile.open("test_xml_rooted_deprecated.xml");
     std::stringstream strStream;
     strStream << inFile.rdbuf();
     std::unique_ptr<BaseNode> root;
@@ -194,7 +294,7 @@ TEST_F(XMLParserTests, TypesRootedBuffer)
 TEST_F(XMLParserTests, Types)
 {
     std::unique_ptr<BaseNode> root;
-    ASSERT_EQ(XMLParser::loadXML("test_xml_profiles.xml", root), XMLP_ret::XML_OK);
+    ASSERT_EQ(XMLParser::loadXML("test_xml_profile.xml", root), XMLP_ret::XML_OK);
 
     BaseNode* profiles(root->getChild(0));
     ASSERT_TRUE(profiles);
@@ -227,7 +327,7 @@ TEST_F(XMLParserTests, Types)
 TEST_F(XMLParserTests, TypesBuffer)
 {
     std::ifstream inFile;
-    inFile.open("test_xml_profiles.xml");
+    inFile.open("test_xml_profile.xml");
     std::stringstream strStream;
     strStream << inFile.rdbuf();
     std::unique_ptr<BaseNode> root;
@@ -269,7 +369,7 @@ TEST_F(XMLParserTests, DurationCheck)
     const std::string profile_name2{"test_publisher_profile"};
     const std::string profile_name3{"test_subscriber_profile"};
 
-    ASSERT_EQ(XMLParser::loadXML("test_xml_duration.xml", root), XMLP_ret::XML_OK);
+    ASSERT_EQ(XMLParser::loadXML("test_xml_duration_profile.xml", root), XMLP_ret::XML_OK);
 
     ParticipantAttributes participant_atts;
     bool participant_profile = false;
@@ -330,13 +430,112 @@ TEST_F(XMLParserTests, DurationCheck)
     EXPECT_EQ(subscriber_atts.qos.m_latencyBudget.duration.seconds, 20);
 }
 
+/*
+ * Checks the XML validated data parsing
+ */
 TEST_F(XMLParserTests, Data)
 {
     std::unique_ptr<BaseNode> root;
     const std::string name_attribute{"profile_name"};
     const std::string profile_name{"test_participant_profile"};
 
-    ASSERT_EQ(XMLParser::loadXML("test_xml_profiles.xml", root), XMLP_ret::XML_OK);
+    ASSERT_EQ(XMLParser::loadXML("test_xml_profile.xml", root), XMLP_ret::XML_OK);
+
+    BaseNode* profiles(root->getChild(0));
+    ASSERT_TRUE(profiles);
+    ASSERT_EQ(profiles->getType(), xmlparser::NodeType::PROFILES);
+
+    ParticipantAttributes participant_atts;
+    bool participant_profile = false;
+    for (const auto& profile : profiles->getChildren())
+    {
+        if (profile->getType() == NodeType::PARTICIPANT)
+        {
+            auto data_node = dynamic_cast<DataNode<ParticipantAttributes>*>(profile.get());
+            auto search    = data_node->getAttributes().find(name_attribute);
+            if ((search != data_node->getAttributes().end()) && (search->second == profile_name))
+            {
+                participant_atts    = *data_node->get();
+                participant_profile = true;
+            }
+        }
+    }
+
+    ASSERT_TRUE(participant_profile);
+    EXPECT_EQ(participant_atts.domainId, 123u);
+    RTPSParticipantAttributes& rtps_atts = participant_atts.rtps;
+    BuiltinAttributes& builtin           = rtps_atts.builtin;
+    Locator_t locator;
+    LocatorListIterator loc_list_it;
+    PortParameters& port = rtps_atts.port;
+    IPLocator::setIPv4(locator, 192, 168, 1, 2);
+    locator.port = 2019;
+    EXPECT_EQ(*rtps_atts.defaultUnicastLocatorList.begin(), locator);
+    IPLocator::setIPv4(locator, 239, 255, 0, 1);
+    locator.port = 2021;
+    EXPECT_EQ(*rtps_atts.defaultMulticastLocatorList.begin(), locator);
+    IPLocator::setIPv4(locator, 192, 168, 1, 1);
+    locator.port = 1979;
+    EXPECT_EQ(rtps_atts.sendSocketBufferSize, 32u);
+    EXPECT_EQ(rtps_atts.listenSocketBufferSize, 1000u);
+    EXPECT_EQ(builtin.discovery_config.discoveryProtocol, eprosima::fastrtps::rtps::DiscoveryProtocol::SIMPLE);
+    EXPECT_EQ(builtin.use_WriterLivelinessProtocol, false);
+    EXPECT_EQ(builtin.discovery_config.use_SIMPLE_EndpointDiscoveryProtocol, true);
+    EXPECT_EQ(builtin.discovery_config.use_STATIC_EndpointDiscoveryProtocol, false);
+    EXPECT_EQ(builtin.discovery_config.leaseDuration, c_TimeInfinite);
+    EXPECT_EQ(builtin.discovery_config.leaseDuration_announcementperiod.seconds, 10);
+    EXPECT_EQ(builtin.discovery_config.leaseDuration_announcementperiod.nanosec, 333u);
+    EXPECT_EQ(builtin.discovery_config.m_simpleEDP.use_PublicationWriterANDSubscriptionReader, false);
+    EXPECT_EQ(builtin.discovery_config.m_simpleEDP.use_PublicationReaderANDSubscriptionWriter, true);
+    IPLocator::setIPv4(locator, 192, 168, 1, 5);
+    locator.port = 9999;
+    EXPECT_EQ(*(loc_list_it = builtin.metatrafficUnicastLocatorList.begin()), locator);
+    IPLocator::setIPv4(locator, 192, 168, 1, 6);
+    locator.port = 6666;
+    ++loc_list_it;
+    EXPECT_EQ(*loc_list_it, locator);
+    IPLocator::setIPv4(locator, 239, 255, 0, 2);
+    locator.port = 32;
+    EXPECT_EQ(*(loc_list_it = builtin.metatrafficMulticastLocatorList.begin()), locator);
+    IPLocator::setIPv4(locator, 239, 255, 0, 3);
+    locator.port = 2112;
+    ++loc_list_it;
+    EXPECT_EQ(*loc_list_it, locator);
+    IPLocator::setIPv4(locator, 239, 255, 0, 1);
+    locator.port = 21120;
+    EXPECT_EQ(*(loc_list_it = builtin.initialPeersList.begin()), locator);
+    EXPECT_EQ(builtin.readerHistoryMemoryPolicy, PREALLOCATED_MEMORY_MODE);
+    EXPECT_EQ(builtin.writerHistoryMemoryPolicy, PREALLOCATED_MEMORY_MODE);
+    EXPECT_EQ(builtin.readerPayloadSize, 1000u);
+    EXPECT_EQ(builtin.writerPayloadSize, 2000u);
+    EXPECT_EQ(builtin.mutation_tries, 55u);
+    EXPECT_TRUE(builtin.typelookup_config.use_client);
+    EXPECT_TRUE(builtin.typelookup_config.use_server);
+    EXPECT_EQ(port.portBase, 12);
+    EXPECT_EQ(port.domainIDGain, 34);
+    EXPECT_EQ(port.participantIDGain, 56);
+    EXPECT_EQ(port.offsetd0, 78);
+    EXPECT_EQ(port.offsetd1, 90);
+    EXPECT_EQ(port.offsetd2, 123);
+    EXPECT_EQ(port.offsetd3, 456);
+    EXPECT_EQ(rtps_atts.participantID, 9898);
+    //EXPECT_EQ(rtps_atts.throughputController.bytesPerPeriod, 2048u);
+    //EXPECT_EQ(rtps_atts.throughputController.periodMillisecs, 45u);
+    EXPECT_EQ(rtps_atts.useBuiltinTransports, true);
+    EXPECT_EQ(std::string(rtps_atts.getName()), "test_name");
+    EXPECT_EQ(rtps_atts.userData, std::vector<octet>({0x56, 0x30, 0x0, 0xce}));
+}
+
+/*
+ * Checks the data parsing (with deprecated but supported elements)
+ */
+TEST_F(XMLParserTests, DataDeprecated)
+{
+    std::unique_ptr<BaseNode> root;
+    const std::string name_attribute{"profile_name"};
+    const std::string profile_name{"test_participant_profile"};
+
+    ASSERT_EQ(XMLParser::loadXML("test_xml_deprecated.xml", root), XMLP_ret::XML_OK);
 
     BaseNode* profiles(root->getChild(0));
     ASSERT_TRUE(profiles);
@@ -406,6 +605,8 @@ TEST_F(XMLParserTests, Data)
     EXPECT_EQ(builtin.readerPayloadSize, 1000u);
     EXPECT_EQ(builtin.writerPayloadSize, 2000u);
     EXPECT_EQ(builtin.mutation_tries, 55u);
+    EXPECT_TRUE(builtin.typelookup_config.use_client);
+    EXPECT_TRUE(builtin.typelookup_config.use_server);
     EXPECT_EQ(port.portBase, 12);
     EXPECT_EQ(port.domainIDGain, 34);
     EXPECT_EQ(port.participantIDGain, 56);
@@ -426,7 +627,103 @@ TEST_F(XMLParserTests, DataBuffer)
     const std::string name_attribute{"profile_name"};
     const std::string profile_name{"test_participant_profile"};
     std::ifstream inFile;
-    inFile.open("test_xml_profiles.xml");
+    inFile.open("test_xml_profile.xml");
+    std::stringstream strStream;
+    strStream << inFile.rdbuf();
+    std::unique_ptr<BaseNode> root;
+    ASSERT_EQ(XMLParser::loadXML(strStream.str().data(), strStream.str().size(), root), XMLP_ret::XML_OK);
+
+    BaseNode* profiles(root->getChild(0));
+    ASSERT_TRUE(profiles);
+    ASSERT_EQ(profiles->getType(), xmlparser::NodeType::PROFILES);
+
+    ParticipantAttributes participant_atts;
+    bool participant_profile = false;
+    for (const auto& profile : profiles->getChildren())
+    {
+        if (profile->getType() == NodeType::PARTICIPANT)
+        {
+            auto data_node = dynamic_cast<DataNode<ParticipantAttributes>*>(profile.get());
+            auto search    = data_node->getAttributes().find(name_attribute);
+            if ((search != data_node->getAttributes().end()) && (search->second == profile_name))
+            {
+                participant_atts    = *data_node->get();
+                participant_profile = true;
+            }
+        }
+    }
+
+    ASSERT_TRUE(participant_profile);
+    EXPECT_EQ(participant_atts.domainId, 123u);
+    RTPSParticipantAttributes& rtps_atts = participant_atts.rtps;
+    BuiltinAttributes& builtin           = rtps_atts.builtin;
+    Locator_t locator;
+    LocatorListIterator loc_list_it;
+    PortParameters& port = rtps_atts.port;
+    IPLocator::setIPv4(locator, 192, 168, 1, 2);
+    locator.port = 2019;
+    EXPECT_EQ(*rtps_atts.defaultUnicastLocatorList.begin(), locator);
+    IPLocator::setIPv4(locator, 239, 255, 0, 1);
+    locator.port = 2021;
+    EXPECT_EQ(*rtps_atts.defaultMulticastLocatorList.begin(), locator);
+    IPLocator::setIPv4(locator, 192, 168, 1, 1);
+    locator.port = 1979;
+    EXPECT_EQ(rtps_atts.sendSocketBufferSize, 32u);
+    EXPECT_EQ(rtps_atts.listenSocketBufferSize, 1000u);
+    EXPECT_EQ(builtin.discovery_config.discoveryProtocol, eprosima::fastrtps::rtps::DiscoveryProtocol::SIMPLE);
+    EXPECT_EQ(builtin.use_WriterLivelinessProtocol, false);
+    EXPECT_EQ(builtin.discovery_config.use_SIMPLE_EndpointDiscoveryProtocol, true);
+    EXPECT_EQ(builtin.discovery_config.use_STATIC_EndpointDiscoveryProtocol, false);
+    EXPECT_EQ(builtin.discovery_config.leaseDuration, c_TimeInfinite);
+    EXPECT_EQ(builtin.discovery_config.leaseDuration_announcementperiod.seconds, 10);
+    EXPECT_EQ(builtin.discovery_config.leaseDuration_announcementperiod.nanosec, 333u);
+    EXPECT_EQ(builtin.discovery_config.m_simpleEDP.use_PublicationWriterANDSubscriptionReader, false);
+    EXPECT_EQ(builtin.discovery_config.m_simpleEDP.use_PublicationReaderANDSubscriptionWriter, true);
+    IPLocator::setIPv4(locator, 192, 168, 1, 5);
+    locator.port = 9999;
+    EXPECT_EQ(*(loc_list_it = builtin.metatrafficUnicastLocatorList.begin()), locator);
+    IPLocator::setIPv4(locator, 192, 168, 1, 6);
+    locator.port = 6666;
+    ++loc_list_it;
+    EXPECT_EQ(*loc_list_it, locator);
+    IPLocator::setIPv4(locator, 239, 255, 0, 2);
+    locator.port = 32;
+    EXPECT_EQ(*(loc_list_it = builtin.metatrafficMulticastLocatorList.begin()), locator);
+    IPLocator::setIPv4(locator, 239, 255, 0, 3);
+    locator.port = 2112;
+    ++loc_list_it;
+    EXPECT_EQ(*loc_list_it, locator);
+    IPLocator::setIPv4(locator, 239, 255, 0, 1);
+    locator.port = 21120;
+    EXPECT_EQ(*(loc_list_it = builtin.initialPeersList.begin()), locator);
+    EXPECT_EQ(builtin.readerHistoryMemoryPolicy, PREALLOCATED_MEMORY_MODE);
+    EXPECT_EQ(builtin.writerHistoryMemoryPolicy, PREALLOCATED_MEMORY_MODE);
+    EXPECT_EQ(builtin.readerPayloadSize, 1000u);
+    EXPECT_EQ(builtin.writerPayloadSize, 2000u);
+    EXPECT_EQ(builtin.mutation_tries, 55u);
+    EXPECT_TRUE(builtin.typelookup_config.use_client);
+    EXPECT_TRUE(builtin.typelookup_config.use_server);
+    EXPECT_EQ(port.portBase, 12);
+    EXPECT_EQ(port.domainIDGain, 34);
+    EXPECT_EQ(port.participantIDGain, 56);
+    EXPECT_EQ(port.offsetd0, 78);
+    EXPECT_EQ(port.offsetd1, 90);
+    EXPECT_EQ(port.offsetd2, 123);
+    EXPECT_EQ(port.offsetd3, 456);
+    EXPECT_EQ(rtps_atts.participantID, 9898);
+    //EXPECT_EQ(rtps_atts.throughputController.bytesPerPeriod, 2048u);
+    //EXPECT_EQ(rtps_atts.throughputController.periodMillisecs, 45u);
+    EXPECT_EQ(rtps_atts.useBuiltinTransports, true);
+    EXPECT_EQ(std::string(rtps_atts.getName()), "test_name");
+    EXPECT_EQ(rtps_atts.userData, std::vector<octet>({0x56, 0x30, 0x0, 0xce}));
+}
+
+TEST_F(XMLParserTests, DataBufferDeprecated)
+{
+    const std::string name_attribute{"profile_name"};
+    const std::string profile_name{"test_participant_profile"};
+    std::ifstream inFile;
+    inFile.open("test_xml_deprecated.xml");
     std::stringstream strStream;
     strStream << inFile.rdbuf();
     std::unique_ptr<BaseNode> root;
@@ -500,6 +797,8 @@ TEST_F(XMLParserTests, DataBuffer)
     EXPECT_EQ(builtin.readerPayloadSize, 1000u);
     EXPECT_EQ(builtin.writerPayloadSize, 2000u);
     EXPECT_EQ(builtin.mutation_tries, 55u);
+    EXPECT_TRUE(builtin.typelookup_config.use_client);
+    EXPECT_TRUE(builtin.typelookup_config.use_server);
     EXPECT_EQ(port.portBase, 12);
     EXPECT_EQ(port.domainIDGain, 34);
     EXPECT_EQ(port.participantIDGain, 56);
@@ -528,19 +827,19 @@ TEST_F(XMLParserTests, loadXMLProfiles)
     const char* xml =
             "\
             <profiles>\
-                <publisher profile_name=\"test_publisher_profile\"\
+                <data_writer profile_name=\"test_publisher_profile\"\
                 is_default_profile=\"true\">\
                     <qos>\
                         <durability>\
                             <kind>TRANSIENT_LOCAL</kind>\
                         </durability>\
                     </qos>\
-                </publisher>\
-                <subscriber profile_name=\"test_subscriber_profile\" is_default_profile=\"true\">\
+                </data_writer>\
+                <data_reader profile_name=\"test_subscriber_profile\" is_default_profile=\"true\">\
                     <historyMemoryPolicy>PREALLOCATED_WITH_REALLOC</historyMemoryPolicy>\
                     <userDefinedID>13</userDefinedID>\
                     <entityID>31</entityID>\
-                </subscriber>\
+                </data_reader>\
             </profiles>\
             ";
 
@@ -600,10 +899,11 @@ TEST_F(XMLParserTests, parseXMLTransportData)
                     <rtps_dump_file>rtsp_messages.log</rtps_dump_file>\
                 </transport_descriptor>\
                 ";
-        char xml[2000];
+        constexpr size_t xml_len {2000};
+        char xml[xml_len];
 
         // UDPv4
-        sprintf(xml, xml_p, "4");
+        snprintf(xml, xml_len, xml_p, "4");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parseXMLTransportData_wrapper(titleElement));
@@ -623,7 +923,7 @@ TEST_F(XMLParserTests, parseXMLTransportData)
         xmlparser::XMLProfileManager::DeleteInstance();
 
         // UDPv6
-        sprintf(xml, xml_p, "6");
+        snprintf(xml, xml_len, xml_p, "6");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parseXMLTransportData_wrapper(titleElement));
@@ -677,10 +977,11 @@ TEST_F(XMLParserTests, parseXMLTransportData)
                     <tls><!-- TLS Section --></tls>\
                 </transport_descriptor>\
                 ";
-        char xml[2000];
+        constexpr size_t xml_len {2000};
+        char xml[xml_len];
 
         // TCPv4
-        sprintf(xml, xml_p, "4");
+        snprintf(xml, xml_len, xml_p, "4");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parseXMLTransportData_wrapper(titleElement));
@@ -709,7 +1010,7 @@ TEST_F(XMLParserTests, parseXMLTransportData)
         xmlparser::XMLProfileManager::DeleteInstance();
 
         // TCPv6
-        sprintf(xml, xml_p, "6");
+        snprintf(xml, xml_len, xml_p, "6");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parseXMLTransportData_wrapper(titleElement));
@@ -1041,12 +1342,13 @@ TEST_F(XMLParserTests, parseXMLStdoutErrConsumer)
                     </property>\
                 </consumer>\
                 ";
-        char xml[500];
+        constexpr size_t xml_len {500};
+        char xml[xml_len];
 
         std::vector<std::string> log_levels = {"Info", "Warning", "Error"};
         for (std::vector<std::string>::iterator it = log_levels.begin(); it != log_levels.end(); ++it)
         {
-            sprintf(xml, xml_p, (*it).c_str());
+            snprintf(xml, xml_len, xml_p, (*it).c_str());
             ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
             titleElement = xml_doc.RootElement();
             EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parseXMLConsumer_wrapper(*titleElement));
@@ -1274,21 +1576,22 @@ TEST_F(XMLParserTests, parseLogConfig)
                     </consumer>\
                 </log>\
                 ";
-        char xml[500];
+        constexpr size_t xml_len {500};
+        char xml[xml_len];
 
         // Check wrong class of consumer
-        sprintf(xml, xml_p, "FALSE", "wrong_class");
+        snprintf(xml, xml_len, xml_p, "FALSE", "wrong_class");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParserTest::parseLogConfig_wrapper(titleElement));
 
         // Check both values of use_default
-        sprintf(xml, xml_p, "TRUE", "StdoutConsumer");
+        snprintf(xml, xml_len, xml_p, "TRUE", "StdoutConsumer");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parseLogConfig_wrapper(titleElement));
 
-        sprintf(xml, xml_p, "FALSE", "StdoutConsumer");
+        snprintf(xml, xml_len, xml_p, "FALSE", "StdoutConsumer");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parseLogConfig_wrapper(titleElement));
@@ -1314,10 +1617,9 @@ TEST_F(XMLParserTests, parseLogConfig)
 /*
  * This test checks the return of the negative cases of the fillDataNode given a ParticipantAttributes DataNode
  * 1. Check passing a nullptr as if the XMLElement was wrongly parsed above
- * 2. Check missing required rtps tag
- * 3. Check missing DomainId value in tag
- * 4. Check bad values for all attributes
- * 5. Check a non existant attribute tag
+ * 2. Check missing DomainId value in tag
+ * 3. Check bad values for all attributes
+ * 4. Check a non existant attribute tag
  */
 TEST_F(XMLParserTests, fillDataNodeParticipantNegativeClauses)
 {
@@ -1337,16 +1639,11 @@ TEST_F(XMLParserTests, fillDataNodeParticipantNegativeClauses)
                     %s\
                 </participant>\
                 ";
-        char xml[500];
-
-        // Misssing rtps tag
-        sprintf(xml, xml_p, "<domainId>0</domainId>");
-        ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
-        titleElement = xml_doc.RootElement();
-        EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParserTest::fillDataNode_wrapper(titleElement, *participant_node));
+        constexpr size_t xml_len {500};
+        char xml[xml_len];
 
         // Misssing DomainId Value
-        sprintf(xml, xml_p, "<domainId></domainId><rtps></rtps>");
+        snprintf(xml, xml_len, xml_p, "<domainId></domainId><rtps></rtps>");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParserTest::fillDataNode_wrapper(titleElement, *participant_node));
@@ -1363,7 +1660,8 @@ TEST_F(XMLParserTests, fillDataNodeParticipantNegativeClauses)
                     </rtps>\
                 </participant>\
                 ";
-        char xml[500];
+        constexpr size_t xml_len {500};
+        char xml[xml_len];
 
         std::vector<std::string> parameters = {
             "<name></name>",
@@ -1387,7 +1685,7 @@ TEST_F(XMLParserTests, fillDataNodeParticipantNegativeClauses)
 
         for (std::vector<std::string>::iterator it = parameters.begin(); it != parameters.end(); ++it)
         {
-            sprintf(xml, xml_p, (*it).c_str());
+            snprintf(xml, xml_len, xml_p, (*it).c_str());
             ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
             titleElement = xml_doc.RootElement();
             EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParserTest::fillDataNode_wrapper(titleElement, *participant_node));
@@ -1413,7 +1711,8 @@ TEST_F(XMLParserTests, parseXMLNoRoot)
             </%s>\
             ";
 
-    char xml[600];
+    constexpr size_t xml_len {600};
+    char xml[xml_len];
 
     // Check that elements <profiles>, <types> and <log> are read as root elements.
     std::vector<std::string> elements {
@@ -1424,13 +1723,13 @@ TEST_F(XMLParserTests, parseXMLNoRoot)
 
     for (std::string e : elements)
     {
-        sprintf(xml, xml_p, e.c_str(), e.c_str());
+        snprintf(xml, xml_len, xml_p, e.c_str(), e.c_str());
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parseXML_wrapper(xml_doc, root));
     }
 
     // Check that it triggers an error when reading a wrong element.
-    sprintf(xml, xml_p, "bad_root", "bad_root");
+    snprintf(xml, xml_len, xml_p, "bad_root", "bad_root");
     ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
     EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParserTest::parseXML_wrapper(xml_doc, root));
 }
@@ -1456,12 +1755,14 @@ TEST_F(XMLParserTests, parseXMLProfilesRoot)
             </dds>\
             ";
 
-    char xml[600];
+    constexpr size_t xml_len {600};
+    char xml[xml_len];
 
     // Check that elements <library_settings>, <participant>, <publisher>, <data_writer>, <subscriber>, <data_reader>,
     // <topic>, <requester>, <replier>, <types>, and <log> are read as xml child elements of the <profiles>
     // root element.
     std::vector<std::string> elements_ok {
+        "participant",
         "publisher",
         "data_writer",
         "subscriber",
@@ -1472,26 +1773,25 @@ TEST_F(XMLParserTests, parseXMLProfilesRoot)
     };
     for (std::string e : elements_ok)
     {
-        sprintf(xml, xml_p, e.c_str(), e.c_str());
+        snprintf(xml, xml_len, xml_p, e.c_str(), e.c_str());
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parseXML_wrapper(xml_doc, root));
     }
 
     std::vector<std::string> elements_error {
         "library_settings",
-        "participant",
         "requester",
         "replier"
     };
     for (std::string e : elements_error)
     {
-        sprintf(xml, xml_p, e.c_str(), e.c_str());
+        snprintf(xml, xml_len, xml_p, e.c_str(), e.c_str());
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParserTest::parseXML_wrapper(xml_doc, root));
     }
 
     // Check that it triggers an error when reading a wrong element.
-    sprintf(xml, xml_p, "bad_element", "bad_element");
+    snprintf(xml, xml_len, xml_p, "bad_element", "bad_element");
     ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
     EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParserTest::parseXML_wrapper(xml_doc, root));
 }
@@ -1542,7 +1842,8 @@ TEST_F(XMLParserTests, parseTLSConfigNegativeClauses)
     tinyxml2::XMLElement* titleElement;
     std::shared_ptr<eprosima::fastdds::rtps::TransportDescriptorInterface> tcp_transport =
             std::make_shared<rtps::TCPv4TransportDescriptor>();
-    char xml[600];
+    constexpr size_t xml_len {600};
+    char xml[xml_len];
 
     // Check that elements <password>, <private_key_file>, <rsa_private_key_file>, <cert_chain_file>, <tmp_dh_file>,
     // <verify_file>, <verify_depth>, <default_verify_path>, <bad_element>, <server_name>
@@ -1571,7 +1872,7 @@ TEST_F(XMLParserTests, parseTLSConfigNegativeClauses)
 
         for (std::string e : elements)
         {
-            sprintf(xml, xml_p, e.c_str(), e.c_str());
+            snprintf(xml, xml_len, xml_p, e.c_str(), e.c_str());
             ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
             titleElement = xml_doc.RootElement();
             EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1594,7 +1895,7 @@ TEST_F(XMLParserTests, parseTLSConfigNegativeClauses)
 
         for (std::string e : elements)
         {
-            sprintf(xml, xml_p_verify_paths, e.c_str(), e.c_str());
+            snprintf(xml, xml_len, xml_p_verify_paths, e.c_str(), e.c_str());
             ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
             titleElement = xml_doc.RootElement();
             EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1621,7 +1922,7 @@ TEST_F(XMLParserTests, parseTLSConfigNegativeClauses)
 
         for (std::string e : elements)
         {
-            sprintf(xml, xml_p_verify_mode, e.c_str());
+            snprintf(xml, xml_len, xml_p_verify_mode, e.c_str());
             ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
             titleElement = xml_doc.RootElement();
             EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1641,7 +1942,7 @@ TEST_F(XMLParserTests, parseTLSConfigNegativeClauses)
 
         for (std::string e : elements)
         {
-            sprintf(xml, xml_p_handshake_role, e.c_str());
+            snprintf(xml, xml_len, xml_p_handshake_role, e.c_str());
             ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
             titleElement = xml_doc.RootElement();
             EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1668,7 +1969,7 @@ TEST_F(XMLParserTests, parseTLSConfigNegativeClauses)
 
         for (std::string e : elements)
         {
-            sprintf(xml, xml_p_options, e.c_str());
+            snprintf(xml, xml_len, xml_p_options, e.c_str());
             ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
             titleElement = xml_doc.RootElement();
             EXPECT_EQ(XMLP_ret::XML_ERROR, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1690,7 +1991,8 @@ TEST_F(XMLParserTests, parseTLSConfigHandshakeRole)
     std::shared_ptr<eprosima::fastdds::rtps::TransportDescriptorInterface> tcp_transport =
             std::make_shared<rtps::TCPv4TransportDescriptor>();
 
-    char xml[600];
+    constexpr size_t xml_len {600};
+    char xml[xml_len];
 
     // Parametrized XML
     const char* xml_p =
@@ -1702,7 +2004,7 @@ TEST_F(XMLParserTests, parseTLSConfigHandshakeRole)
 
     // Check that the DEFAULT setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p, "DEFAULT");
+        snprintf(xml, xml_len, xml_p, "DEFAULT");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1714,7 +2016,7 @@ TEST_F(XMLParserTests, parseTLSConfigHandshakeRole)
 
     // Check that the CLIENT setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p, "CLIENT");
+        snprintf(xml, xml_len, xml_p, "CLIENT");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1726,7 +2028,7 @@ TEST_F(XMLParserTests, parseTLSConfigHandshakeRole)
 
     // Check that the SERVER setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p, "SERVER");
+        snprintf(xml, xml_len, xml_p, "SERVER");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1749,7 +2051,8 @@ TEST_F(XMLParserTests, parseTLSConfigVerifyMode)
     tinyxml2::XMLDocument xml_doc;
     std::unique_ptr<BaseNode> root;
     tinyxml2::XMLElement* titleElement;
-    char xml[600];
+    constexpr size_t xml_len {600};
+    char xml[xml_len];
 
     // Parametrized XML
     const char* xml_p_verify_mode =
@@ -1763,7 +2066,7 @@ TEST_F(XMLParserTests, parseTLSConfigVerifyMode)
 
     // Check that the VERIFY_NONE setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p_verify_mode, "VERIFY_NONE");
+        snprintf(xml, xml_len, xml_p_verify_mode, "VERIFY_NONE");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
 
@@ -1778,7 +2081,7 @@ TEST_F(XMLParserTests, parseTLSConfigVerifyMode)
 
     // Check that the VERIFY_PEER setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p_verify_mode, "VERIFY_PEER");
+        snprintf(xml, xml_len, xml_p_verify_mode, "VERIFY_PEER");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
 
@@ -1793,7 +2096,7 @@ TEST_F(XMLParserTests, parseTLSConfigVerifyMode)
 
     // Check that the VERIFY_FAIL_IF_NO_PEER_CERT setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p_verify_mode, "VERIFY_FAIL_IF_NO_PEER_CERT");
+        snprintf(xml, xml_len, xml_p_verify_mode, "VERIFY_FAIL_IF_NO_PEER_CERT");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
 
@@ -1809,7 +2112,7 @@ TEST_F(XMLParserTests, parseTLSConfigVerifyMode)
 
     // Check that the VERIFY_CLIENT_ONCE setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p_verify_mode, "VERIFY_CLIENT_ONCE");
+        snprintf(xml, xml_len, xml_p_verify_mode, "VERIFY_CLIENT_ONCE");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
 
@@ -1842,7 +2145,8 @@ TEST_F(XMLParserTests, parseTLSConfigOptions)
     tinyxml2::XMLElement* titleElement;
     std::shared_ptr<eprosima::fastdds::rtps::TransportDescriptorInterface> tcp_transport =
             std::make_shared<rtps::TCPv4TransportDescriptor>();
-    char xml[600];
+    constexpr size_t xml_len {600};
+    char xml[xml_len];
 
     // Parametrized XML
     const char* xml_p_verify_mode =
@@ -1856,7 +2160,7 @@ TEST_F(XMLParserTests, parseTLSConfigOptions)
 
     // Check that the DEFAULT_WORKAROUNDS setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p_verify_mode, "DEFAULT_WORKAROUNDS");
+        snprintf(xml, xml_len, xml_p_verify_mode, "DEFAULT_WORKAROUNDS");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1868,7 +2172,7 @@ TEST_F(XMLParserTests, parseTLSConfigOptions)
 
     // Check that the NO_COMPRESSION setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p_verify_mode, "NO_COMPRESSION");
+        snprintf(xml, xml_len, xml_p_verify_mode, "NO_COMPRESSION");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1880,7 +2184,7 @@ TEST_F(XMLParserTests, parseTLSConfigOptions)
 
     // Check that the NO_SSLV2 setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p_verify_mode, "NO_SSLV2");
+        snprintf(xml, xml_len, xml_p_verify_mode, "NO_SSLV2");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1892,7 +2196,7 @@ TEST_F(XMLParserTests, parseTLSConfigOptions)
 
     // Check that the NO_SSLV3 setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p_verify_mode, "NO_SSLV3");
+        snprintf(xml, xml_len, xml_p_verify_mode, "NO_SSLV3");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1904,7 +2208,7 @@ TEST_F(XMLParserTests, parseTLSConfigOptions)
 
     // Check that the NO_TLSV1 setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p_verify_mode, "NO_TLSV1");
+        snprintf(xml, xml_len, xml_p_verify_mode, "NO_TLSV1");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1916,7 +2220,7 @@ TEST_F(XMLParserTests, parseTLSConfigOptions)
 
     // Check that the NO_TLSV1_1 setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p_verify_mode, "NO_TLSV1_1");
+        snprintf(xml, xml_len, xml_p_verify_mode, "NO_TLSV1_1");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1928,7 +2232,7 @@ TEST_F(XMLParserTests, parseTLSConfigOptions)
 
     // Check that the NO_TLSV1_2 setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p_verify_mode, "NO_TLSV1_2");
+        snprintf(xml, xml_len, xml_p_verify_mode, "NO_TLSV1_2");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1940,7 +2244,7 @@ TEST_F(XMLParserTests, parseTLSConfigOptions)
 
     // Check that the NO_TLSV1_3 setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p_verify_mode, "NO_TLSV1_3");
+        snprintf(xml, xml_len, xml_p_verify_mode, "NO_TLSV1_3");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1952,7 +2256,7 @@ TEST_F(XMLParserTests, parseTLSConfigOptions)
 
     // Check that the SINGLE_DH_USE setting return an xml ok code and is set correctly.
     {
-        sprintf(xml, xml_p_verify_mode, "SINGLE_DH_USE");
+        snprintf(xml, xml_len, xml_p_verify_mode, "SINGLE_DH_USE");
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         EXPECT_EQ(XMLP_ret::XML_OK, XMLParserTest::parse_tls_config_wrapper(titleElement, tcp_transport));
@@ -1985,7 +2289,8 @@ TEST_F(XMLParserTests, parseProfiles)
             </profiles>\
             ";
 
-    char xml[600];
+    constexpr size_t xml_len {600};
+    char xml[xml_len];
 
     std::vector<std::string> elements_ok {
         "transport_descriptors",
@@ -2001,7 +2306,7 @@ TEST_F(XMLParserTests, parseProfiles)
     };
     for (std::string e : elements_ok)
     {
-        sprintf(xml, xml_p, e.c_str(), e.c_str());
+        snprintf(xml, xml_len, xml_p, e.c_str(), e.c_str());
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         profilesNode.reset(new BaseNode{ NodeType::PROFILES });
@@ -2032,7 +2337,7 @@ TEST_F(XMLParserTests, parseProfiles)
 
     for (std::string e : elements_error)
     {
-        sprintf(xml, xml_p_error, e.c_str(), e.c_str());
+        snprintf(xml, xml_len, xml_p_error, e.c_str(), e.c_str());
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         profilesNode.reset(new BaseNode{ NodeType::PROFILES });
@@ -2068,7 +2373,8 @@ TEST_F(XMLParserTests, parseUnsupportedProfiles)
             </profiles>\
             ";
 
-    char xml[600];
+    constexpr size_t xml_len {600};
+    char xml[xml_len];
 
     std::vector<std::string> elements {
         "qos_profile",
@@ -2077,7 +2383,7 @@ TEST_F(XMLParserTests, parseUnsupportedProfiles)
     };
     for (std::string e : elements)
     {
-        sprintf(xml, xml_p, e.c_str(), e.c_str());
+        snprintf(xml, xml_len, xml_p, e.c_str(), e.c_str());
         ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
         titleElement = xml_doc.RootElement();
         profilesNode.reset(new BaseNode{ NodeType::PROFILES });
@@ -2334,7 +2640,8 @@ TEST_F(XMLParserTests, fillDataNodeRequesterNegativeClauses)
                     </%s>\
                 </requester>\
                 ";
-        char xml[800];
+        constexpr size_t xml_len {800};
+        char xml[xml_len];
 
         std::vector<std::string> elements {
             "request_topic_name",
@@ -2345,7 +2652,7 @@ TEST_F(XMLParserTests, fillDataNodeRequesterNegativeClauses)
         };
         for (std::string e : elements)
         {
-            sprintf(xml, xml_p, e.c_str(), e.c_str());
+            snprintf(xml, xml_len, xml_p, e.c_str(), e.c_str());
             ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
             titleElement = xml_doc.RootElement();
             requester_atts.reset(new RequesterAttributes);
@@ -2463,7 +2770,8 @@ TEST_F(XMLParserTests, fillDataNodeReplierNegativeClauses)
                     </%s>\
                 </replier>\
                 ";
-        char xml[800];
+        constexpr size_t xml_len {800};
+        char xml[xml_len];
 
         std::vector<std::string> elements {
             "request_topic_name",
@@ -2474,7 +2782,7 @@ TEST_F(XMLParserTests, fillDataNodeReplierNegativeClauses)
         };
         for (std::string e : elements)
         {
-            sprintf(xml, xml_p, e.c_str(), e.c_str());
+            snprintf(xml, xml_len, xml_p, e.c_str(), e.c_str());
             ASSERT_EQ(tinyxml2::XMLError::XML_SUCCESS, xml_doc.Parse(xml));
             titleElement = xml_doc.RootElement();
             replier_atts.reset(new ReplierAttributes);

@@ -12,17 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-cmake_minimum_required(VERSION 3.16.3)
+cmake_minimum_required(VERSION 3.22)
 
 project(TypeLookupExample VERSION 1 LANGUAGES CXX)
 
 # Find requirements
 if(NOT fastcdr_FOUND)
-    find_package(fastcdr REQUIRED)
+    find_package(fastcdr 2 REQUIRED)
 endif()
 
 if(NOT fastrtps_FOUND)
-    find_package(fastrtps REQUIRED)
+    find_package(fastrtps 2.12 REQUIRED)
 endif()
 
 #Check C++11
@@ -47,7 +47,7 @@ target_compile_definitions(TypeLookupExample PRIVATE
 target_link_libraries(TypeLookupExample fastrtps fastcdr)
 install(TARGETS TypeLookupExample
     RUNTIME DESTINATION examples/cpp/dds/TypeLookupService/${BIN_INSTALL_DIR})
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/example_type.xml
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/example_type_profile.xml
     DESTINATION examples/cpp/dds/TypeLookupService/${BIN_INSTALL_DIR})
 
-file(COPY example_type.xml DESTINATION ${PROJECT_BINARY_DIR})
+file(COPY example_type_profile.xml DESTINATION ${PROJECT_BINARY_DIR})

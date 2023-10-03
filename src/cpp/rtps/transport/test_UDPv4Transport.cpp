@@ -201,6 +201,12 @@ bool test_UDPv4Transport::send(
 
     while (it != *destination_locators_end)
     {
+        if (!IsLocatorSupported(*it))
+        {
+            ++it;
+            continue;
+        }
+
         auto now = std::chrono::steady_clock::now();
 
         if (now < max_blocking_time_point)
@@ -307,8 +313,8 @@ bool test_UDPv4Transport::packet_should_drop(
         return true;
     }
 
-    CDRMessage_t cdrMessage(send_buffer_size);
-    memcpy(cdrMessage.buffer, send_buffer, send_buffer_size);
+    CDRMessage_t cdrMessage(0);
+    cdrMessage.init(const_cast<octet*>(send_buffer), send_buffer_size);
     cdrMessage.length = send_buffer_size;
 
     if (cdrMessage.length < RTPSMESSAGE_HEADER_SIZE)

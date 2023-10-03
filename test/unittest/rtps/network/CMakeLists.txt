@@ -22,6 +22,10 @@ set(NETWORKFACTORYTESTS_SOURCE
     ${PROJECT_SOURCE_DIR}/src/cpp/fastdds/log/StdoutErrConsumer.cpp
     ${PROJECT_SOURCE_DIR}/src/cpp/rtps/common/Time_t.cpp
 
+    ${PROJECT_SOURCE_DIR}/src/cpp/rtps/attributes/PropertyPolicy.cpp
+
+    ${PROJECT_SOURCE_DIR}/src/cpp/rtps/flowcontrol/ThroughputControllerDescriptor.cpp
+
     ${PROJECT_SOURCE_DIR}/src/cpp/rtps/transport/ChannelResource.cpp
     ${PROJECT_SOURCE_DIR}/src/cpp/rtps/transport/UDPChannelResource.cpp
     ${PROJECT_SOURCE_DIR}/src/cpp/rtps/transport/UDPTransportInterface.cpp
@@ -75,7 +79,7 @@ endif()
 include_directories(mock/)
 
 add_executable(NetworkFactoryTests ${NETWORKFACTORYTESTS_SOURCE})
-target_compile_definitions(NetworkFactoryTests PRIVATE FASTRTPS_NO_LIB
+target_compile_definitions(NetworkFactoryTests PRIVATE
     BOOST_ASIO_STANDALONE
     ASIO_STANDALONE
     $<$<AND:$<NOT:$<BOOL:${WIN32}>>,$<STREQUAL:"${CMAKE_BUILD_TYPE}","Debug">>:__DEBUG>
@@ -96,6 +100,9 @@ target_link_libraries(NetworkFactoryTests fastcdr foonathan_memory
     $<$<BOOL:${TLS_FOUND}>:OpenSSL::SSL$<SEMICOLON>OpenSSL::Crypto>
     ${CMAKE_THREAD_LIBS_INIT} ${CMAKE_DL_LIBS})
 
+if(QNX)
+    target_link_libraries(NetworkFactoryTests socket)
+endif()
 add_executable(ExternalLocatorsProcessorTests
     ExternalLocatorsProcessorTests.cpp
     ${PROJECT_SOURCE_DIR}/src/cpp/rtps/network/ExternalLocatorsProcessor.cpp
@@ -139,7 +146,7 @@ add_executable(ExternalLocatorsProcessorTests
     ${PROJECT_SOURCE_DIR}/src/cpp/fastdds/log/OStreamConsumer.cpp
     ${PROJECT_SOURCE_DIR}/src/cpp/fastdds/log/StdoutConsumer.cpp
     )
-target_compile_definitions(ExternalLocatorsProcessorTests PRIVATE FASTRTPS_NO_LIB
+target_compile_definitions(ExternalLocatorsProcessorTests PRIVATE
     BOOST_ASIO_STANDALONE
     ASIO_STANDALONE
     $<$<AND:$<NOT:$<BOOL:${WIN32}>>,$<STREQUAL:"${CMAKE_BUILD_TYPE}","Debug">>:__DEBUG>
@@ -157,6 +164,9 @@ target_link_libraries(ExternalLocatorsProcessorTests fastcdr
     GTest::gtest ${MOCKS}
     ${CMAKE_THREAD_LIBS_INIT} ${CMAKE_DL_LIBS})
 
+if(QNX)
+    target_link_libraries(ExternalLocatorsProcessorTests socket)
+endif()
 if(WIN32)
     add_definitions(-D_WIN32_WINNT=0x0601)
     target_link_libraries(NetworkFactoryTests IPHLPAPI shlwapi) # Later so mocks have precedence

@@ -43,6 +43,10 @@ public:
         use_ipv6 = std::get<1>(GetParam());
         if (use_ipv6)
         {
+#ifdef __APPLE__
+            // TODO: fix IPv6 issues related with zone ID
+            GTEST_SKIP() << "TCPv6 tests are disabled in Mac";
+#endif // ifdef __APPLE__
             test_transport_ = std::make_shared<TCPv6TransportDescriptor>();
         }
         else
@@ -414,6 +418,61 @@ TEST_P(TransportTCP, TCP_TLS)
 
     ASSERT_TRUE(requester.is_matched());
     ASSERT_TRUE(replier.is_matched());
+}
+
+// Test successful removal of client after previously matched server is removed
+TEST_P(TransportTCP, TCP_TLS_client_disconnect_after_server)
+{
+    TCPReqRepHelloWorldRequester* requester = new TCPReqRepHelloWorldRequester();
+    TCPReqRepHelloWorldReplier* replier = new TCPReqRepHelloWorldReplier();
+
+    requester->init(0, 0, global_port, 5, certs_path);
+
+    ASSERT_TRUE(requester->isInitialized());
+
+    replier->init(4, 0, global_port, 5, certs_path);
+
+    ASSERT_TRUE(replier->isInitialized());
+
+    // Wait for discovery.
+    requester->wait_discovery();
+    replier->wait_discovery();
+
+    ASSERT_TRUE(requester->is_matched());
+    ASSERT_TRUE(replier->is_matched());
+
+    // Completely remove server prior to deleting client
+    delete replier;
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    delete requester;
+}
+
+// Test successful removal of server after previously matched client is removed
+// Issue -> https://eprosima.easyredmine.com/issues/16288
+TEST_P(TransportTCP, TCP_TLS_server_disconnect_after_client)
+{
+    TCPReqRepHelloWorldReplier* replier = new TCPReqRepHelloWorldReplier();
+    TCPReqRepHelloWorldRequester* requester = new TCPReqRepHelloWorldRequester();
+
+    requester->init(0, 0, global_port, 5, certs_path);
+
+    ASSERT_TRUE(requester->isInitialized());
+
+    replier->init(4, 0, global_port, 5, certs_path);
+
+    ASSERT_TRUE(replier->isInitialized());
+
+    // Wait for discovery.
+    requester->wait_discovery();
+    replier->wait_discovery();
+
+    ASSERT_TRUE(requester->is_matched());
+    ASSERT_TRUE(replier->is_matched());
+
+    // Completely remove client prior to deleting server
+    delete requester;
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    delete replier;
 }
 
 void tls_init()

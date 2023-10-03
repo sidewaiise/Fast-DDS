@@ -23,7 +23,7 @@ set(STATISTICS_RTPS_TESTS_SOURCE
 
 add_executable(RTPSStatisticsTests ${STATISTICS_RTPS_TESTS_SOURCE})
 
-target_compile_definitions(RTPSStatisticsTests PRIVATE FASTRTPS_NO_LIB
+target_compile_definitions(RTPSStatisticsTests PRIVATE
     BOOST_ASIO_STANDALONE
     ASIO_STANDALONE
     $<$<AND:$<NOT:$<BOOL:${WIN32}>>,$<STREQUAL:"${CMAKE_BUILD_TYPE}","Debug">>:__DEBUG>
@@ -39,7 +39,9 @@ target_include_directories(RTPSStatisticsTests PRIVATE
 
 target_link_libraries(RTPSStatisticsTests fastrtps fastcdr GTest::gtest GTest::gmock)
 add_gtest(RTPSStatisticsTests SOURCES ${STATISTICS_RTPS_TESTS_SOURCE})
-
+if(QNX)
+    target_link_libraries(RTPSStatisticsTests socket)
+endif()
 if(ANDROID)
     set_property(TARGET RTPSStatisticsTests PROPERTY CROSSCOMPILING_EMULATOR "adb;shell;cd;${CMAKE_CURRENT_BINARY_DIR};&&")
 endif()

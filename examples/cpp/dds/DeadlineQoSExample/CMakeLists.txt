@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-cmake_minimum_required(VERSION 3.16.3)
+cmake_minimum_required(VERSION 3.22)
 
 project(DeadlineQoSExample VERSION 1 LANGUAGES CXX)
 
 # Find requirements
 if(NOT fastcdr_FOUND)
-    find_package(fastcdr REQUIRED)
+    find_package(fastcdr 2 REQUIRED)
 endif()
 
 if(NOT foonathan_memory_FOUND)
@@ -26,11 +26,7 @@ if(NOT foonathan_memory_FOUND)
 endif()
 
 if(NOT fastrtps_FOUND)
-    find_package(fastrtps REQUIRED)
-endif()
-
-if(NOT Asio_FOUND)
-    find_package(Asio QUIET)
+    find_package(fastrtps 2.12 REQUIRED)
 endif()
 
 #Check C++11
@@ -47,12 +43,9 @@ file(GLOB DDS_DEADLINEQOS_EXAMPLE_SOURCES "*.cxx")
 
 add_executable(DDSDeadlineQoSExample ${DDS_DEADLINEQOS_EXAMPLE_SOURCES})
 target_compile_definitions(DDSDeadlineQoSExample PRIVATE
-    BOOST_ASIO_STANDALONE
-    ASIO_STANDALONE
     $<$<AND:$<NOT:$<BOOL:${WIN32}>>,$<STREQUAL:"${CMAKE_BUILD_TYPE}","Debug">>:__DEBUG>
     $<$<BOOL:${INTERNAL_DEBUG}>:__INTERNALDEBUG> # Internal debug activated.
     )
-target_include_directories(DDSDeadlineQoSExample PRIVATE ${Asio_INCLUDE_DIR})
 target_link_libraries(DDSDeadlineQoSExample fastrtps fastcdr foonathan_memory)
 if(UNIX AND NOT(QNXNTO) AND NOT(ANDROID))
     target_link_libraries(DDSDeadlineQoSExample pthread)

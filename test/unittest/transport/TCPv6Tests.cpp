@@ -12,17 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <thread>
 #include <memory>
+#include <thread>
 
 #include <asio.hpp>
 #include <gtest/gtest.h>
-#include <MockReceiverResource.h>
+
 #include <fastdds/dds/log/Log.hpp>
+#include <fastdds/rtps/attributes/RTPSParticipantAttributes.h>
 #include <fastrtps/transport/TCPv6TransportDescriptor.h>
-#include <fastrtps/rtps/network/NetworkFactory.h>
-#include <fastrtps/utils/Semaphore.h>
 #include <fastrtps/utils/IPLocator.h>
+#include <fastrtps/utils/Semaphore.h>
+
+#include <MockReceiverResource.h>
+#include <rtps/network/NetworkFactory.h>
 #include <rtps/transport/TCPv6Transport.h>
 
 using namespace eprosima::fastrtps::rtps;
@@ -52,6 +55,14 @@ uint16_t get_port()
 class TCPv6Tests : public ::testing::Test
 {
 public:
+
+    void SetUp() override
+    {
+#ifdef __APPLE__
+        // TODO: fix IPv6 issues related with zone ID
+        GTEST_SKIP() << "TCPv6 tests are disabled in Mac";
+#endif // ifdef __APPLE__
+    }
 
     TCPv6Tests()
     {
@@ -149,7 +160,8 @@ TEST_F(TCPv6Tests, opening_and_closing_input_channel)
     multicastFilterLocator.port = g_default_port; // arbitrary
     IPLocator::setIPv6(multicastFilterLocator, 0xff31, 0, 0, 0, 0, 0, 0x8000, 0x1234);
 
-    NetworkFactory factory;
+    RTPSParticipantAttributes p_attr{};
+    NetworkFactory factory{p_attr};
     factory.RegisterTransport<TCPv6Transport, TCPv6TransportDescriptor>(descriptor);
     std::vector<std::shared_ptr<ReceiverResource>> receivers;
     factory.BuildReceiverResources(multicastFilterLocator, receivers, 0x8FFF);

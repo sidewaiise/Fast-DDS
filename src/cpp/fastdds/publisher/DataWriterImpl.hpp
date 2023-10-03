@@ -108,7 +108,8 @@ protected:
             TypeSupport type,
             Topic* topic,
             const DataWriterQos& qos,
-            DataWriterListener* listener = nullptr);
+            DataWriterListener* listener = nullptr,
+            std::shared_ptr<fastrtps::rtps::IPayloadPool> payload_pool = nullptr);
 
     DataWriterImpl(
             PublisherImpl* p,
@@ -406,11 +407,11 @@ protected:
 
     DataWriterQos qos_;
 
-    //!History
-    DataWriterHistory history_;
-
     //! DataWriterListener
     DataWriterListener* listener_ = nullptr;
+
+    //!History
+    DataWriterHistory history_;
 
     //!Listener to capture the events of the Writer
     class InnerDataWriterListener : public fastrtps::rtps::WriterListener
@@ -487,6 +488,8 @@ protected:
     uint32_t fixed_payload_size_ = 0u;
 
     std::shared_ptr<IPayloadPool> payload_pool_;
+
+    bool is_custom_payload_pool_ = false;
 
     std::unique_ptr<LoanCollection> loans_;
 

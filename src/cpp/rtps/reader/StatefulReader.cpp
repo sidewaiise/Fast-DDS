@@ -43,18 +43,12 @@
 
 using namespace eprosima::fastrtps::rtps;
 
-static void send_ack_if_datasharing(
+static void send_datasharing_ack(
         StatefulReader* reader,
         ReaderHistory* history,
         WriterProxy* writer,
         const SequenceNumber_t& sequence_number)
 {
-    // If not datasharing, we are done
-    if (!writer || !writer->is_datasharing_writer())
-    {
-        return;
-    }
-
     // This may not be the change read with highest SN,
     // need to find largest SN to ACK
     for (std::vector<CacheChange_t*>::iterator it = history->changesBegin(); it != history->changesEnd(); ++it)
@@ -78,6 +72,19 @@ static void send_ack_if_datasharing(
     // Must ACK all in the writer
     SequenceNumberSet_t sns(writer->available_changes_max() + 1);
     reader->send_acknack(writer, sns, writer, false);
+}
+
+static inline void send_ack_if_datasharing(
+        StatefulReader* reader,
+        ReaderHistory* history,
+        WriterProxy* writer,
+        const SequenceNumber_t& sequence_number)
+{
+    // Shall be datasharing, and not on same process
+    if (writer && writer->is_datasharing_writer() && !writer->is_on_same_process())
+    {
+        send_datasharing_ack(reader, history, writer, sequence_number);
+    }
 }
 
 StatefulReader::~StatefulReader()
@@ -196,7 +203,7 @@ bool StatefulReader::matched_writer_add(
 
         listener = mp_listener;
         bool is_same_process = RTPSDomainImpl::should_intraprocess_between(m_guid, wdata.guid());
-        bool is_datasharing = !is_same_process && is_datasharing_compatible_with(wdata);
+        bool is_datasharing = is_datasharing_compatible_with(wdata);
 
         for (WriterProxy* it : matched_writers_)
         {
@@ -851,7 +858,7 @@ bool StatefulReader::processGapMsg(
     WriterProxy* pWP = nullptr;
 
     std::unique_lock<RecursiveTimedMutex> lock(mp_mutex);
-    if (!is_alive_)
+    if (!is_alive_ || gapStart < SequenceNumber_t(0, 1) || gapList.base() <= gapStart)
     {
         return false;
     }
@@ -860,9 +867,9 @@ bool StatefulReader::processGapMsg(
     {
         // TODO (Miguel C): Refactor this inside WriterProxy
         SequenceNumber_t auxSN;
-        SequenceNumber_t finalSN = gapList.base() - 1;
+        SequenceNumber_t finalSN = gapList.base();
         History::const_iterator history_iterator = mp_history->changesBegin();
-        for (auxSN = gapStart; auxSN <= finalSN; auxSN++)
+        for (auxSN = gapStart; auxSN < finalSN; auxSN++)
         {
             if (pWP->irrelevant_change_set(auxSN))
             {

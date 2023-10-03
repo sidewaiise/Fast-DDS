@@ -52,13 +52,21 @@ void DataSharingListener::run()
     std::unique_lock<Segment::mutex> lock(notification_->notification_->notification_mutex, std::defer_lock);
     while (is_running_.load())
     {
-        lock.lock();
-        notification_->notification_->notification_cv.wait(lock, [&]
-                {
-                    return !is_running_.load() || notification_->notification_->new_data.load();
-                });
+        try
+        {
+            lock.lock();
+            notification_->notification_->notification_cv.wait(lock, [&]
+                    {
+                        return !is_running_.load() || notification_->notification_->new_data.load();
+                    });
 
-        lock.unlock();
+            lock.unlock();
+        }
+        catch (const boost::interprocess::interprocess_exception& /*e*/)
+        {
+            // Timeout when locking
+            continue;
+        }
 
         if (!is_running_.load())
         {
@@ -157,16 +165,16 @@ void DataSharingListener::process_new_data ()
             pool->get_next_unread_payload(ch, last_sequence, last_payload);
             has_new_payload = ch.sequenceNumber != c_SequenceNumber_Unknown;
 
-            if (has_new_payload)
+            if (has_new_payload && ch.sequenceNumber > SequenceNumber_t(0, 0))
             {
-                if (last_sequence != c_SequenceNumber_Unknown && ch.sequenceNumber != last_sequence + 1)
+                if (last_sequence != c_SequenceNumber_Unknown && ch.sequenceNumber > last_sequence + 1)
                 {
                     EPROSIMA_LOG_WARNING(RTPS_READER, "GAP (" << last_sequence + 1 << " - " << ch.sequenceNumber - 1 << ")"
                                                               << " detected on datasharing writer " << pool->writer());
                     reader_->processGapMsg(pool->writer(), last_sequence + 1, SequenceNumberSet_t(ch.sequenceNumber));
                 }
 
-                if (last_sequence == c_SequenceNumber_Unknown && ch.sequenceNumber != SequenceNumber_t(0, 1))
+                if (last_sequence == c_SequenceNumber_Unknown && ch.sequenceNumber > SequenceNumber_t(0, 1))
                 {
                     EPROSIMA_LOG_INFO(RTPS_READER, "First change with SN " << ch.sequenceNumber
                                                                            << " detected on datasharing writer " <<

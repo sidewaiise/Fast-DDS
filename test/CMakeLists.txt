@@ -22,6 +22,8 @@ if(EPROSIMA_BUILD)
     set(SYSTEM_TESTS ON)
 endif()
 
+configure_file(CTestCustom.cmake.in ${PROJECT_BINARY_DIR}/CTestCustom.cmake)
+
 file(TO_CMAKE_PATH "${PROJECT_SOURCE_DIR}/valgrind.supp" MEMORYCHECK_SUPPRESSIONS_FILE_TMP)
 set(MEMORYCHECK_SUPPRESSIONS_FILE ${MEMORYCHECK_SUPPRESSIONS_FILE_TMP} CACHE FILEPATH "Valgrind suppresions file")
 
@@ -76,6 +78,27 @@ endif()
 if(SYSTEM_TESTS)
     add_subdirectory(system/tools/fastdds)
     add_subdirectory(system/tools/fds)
+endif()
+
+if(EPROSIMA_BUILD_TESTS AND QNX)
+    install(DIRECTORY ${PROJECT_BINARY_DIR}/test/
+      DESTINATION bin/Fast-DDS_test
+      PATTERN "*.cmake" EXCLUDE
+      PATTERN "*.d" EXCLUDE
+      PATTERN "*.dir" EXCLUDE
+      PATTERN "*.internal" EXCLUDE
+      PATTERN "*.make" EXCLUDE
+      PATTERN "*.marks" EXCLUDE
+      PATTERN "*.o" EXCLUDE
+      PATTERN "*.ts" EXCLUDE
+      PATTERN "*.txt" EXCLUDE
+      PATTERN "CMakeFiles" EXCLUDE
+      PATTERN "Makefile" EXCLUDE
+      PATTERN "cmake" EXCLUDE
+      )
+    install(DIRECTORY ${PROJECT_SOURCE_DIR}/test/certs
+      DESTINATION bin/Fast-DDS_test
+      )
 endif()
 
 if (ANDROID)

@@ -17,8 +17,6 @@
  *
  */
 
-#include <rtps/participant/RTPSParticipantImpl.h>
-
 #include <algorithm>
 #include <functional>
 #include <memory>
@@ -29,11 +27,14 @@
 #include <fastdds/rtps/attributes/ServerAttributes.h>
 #include <fastdds/rtps/builtin/BuiltinProtocols.h>
 #include <fastdds/rtps/builtin/discovery/endpoint/EDP.h>
+#include <fastdds/rtps/builtin/discovery/participant/PDP.h>
 #include <fastdds/rtps/builtin/discovery/participant/PDPSimple.h>
 #include <fastdds/rtps/builtin/data/ParticipantProxyData.h>
 #include <fastdds/rtps/builtin/liveliness/WLP.h>
+#include <fastdds/rtps/common/EntityId_t.hpp>
 #include <fastdds/rtps/history/WriterHistory.h>
 #include <fastdds/rtps/messages/MessageReceiver.h>
+#include <fastdds/rtps/participant/ParticipantDiscoveryInfo.h>
 #include <fastdds/rtps/participant/RTPSParticipant.h>
 #include <fastdds/rtps/reader/StatelessReader.h>
 #include <fastdds/rtps/reader/StatefulReader.h>
@@ -57,6 +58,7 @@
 #include <rtps/builtin/discovery/participant/PDPClient.h>
 #include <rtps/history/BasicPayloadPool.hpp>
 #include <rtps/network/ExternalLocatorsProcessor.hpp>
+#include <rtps/participant/RTPSParticipantImpl.h>
 #include <rtps/persistence/PersistenceService.h>
 #include <statistics/rtps/GuidUtils.hpp>
 
@@ -128,8 +130,8 @@ RTPSParticipantImpl::RTPSParticipantImpl(
     , m_att(PParam)
     , m_guid(guidP, c_EntityId_RTPSParticipant)
     , mp_builtinProtocols(nullptr)
-    , mp_ResourceSemaphore(new Semaphore(0))
     , IdCounter(0)
+    , m_network_Factory(PParam)
     , type_check_fn_(nullptr)
     , client_override_(false)
     , internal_metatraffic_locators_(false)
@@ -142,6 +144,7 @@ RTPSParticipantImpl::RTPSParticipantImpl(
     , mp_mutex(new std::recursive_mutex())
     , is_intraprocess_only_(should_be_intraprocess_only(PParam))
     , has_shm_transport_(false)
+    , match_local_endpoints_(should_match_local_endpoints(PParam))
 {
     if (c_GuidPrefix_Unknown != persistence_guid)
     {
@@ -208,7 +211,6 @@ RTPSParticipantImpl::RTPSParticipantImpl(
         default:
             break;
     }
-
 
     // User defined transports
     for (const auto& transportDescriptor : PParam.userTransports)
@@ -405,7 +407,6 @@ RTPSParticipantImpl::RTPSParticipantImpl(
         flow_controller_factory_.register_flow_controller(*flow_controller_desc.get());
     }
 
-
 #if HAVE_SECURITY
     if (m_security_manager.is_security_active())
     {
@@ -415,6 +416,10 @@ RTPSParticipantImpl::RTPSParticipantImpl(
         }
     }
 #endif // if HAVE_SECURITY
+
+    // Copy NetworkFactory network_configuration to participant attributes prior to proxy creation
+    // NOTE: all transports already registered before
+    m_att.builtin.network_configuration = m_network_Factory.network_configuration();
 
     mp_builtinProtocols = new BuiltinProtocols();
 
@@ -511,7 +516,6 @@ RTPSParticipantImpl::~RTPSParticipantImpl()
     }
     m_receiverResourcelist.clear();
 
-    delete mp_ResourceSemaphore;
     delete mp_userParticipant;
     mp_userParticipant = nullptr;
     send_resource_list_.clear();
@@ -733,6 +737,11 @@ bool RTPSParticipantImpl::create_writer(
         return false;
     }
 
+    // Use participant's external locators if writer has none
+    // WARNING: call before createAndAssociateReceiverswithEndpoint, as the latter intentionally clears external
+    // locators list when using unique_flows feature
+    setup_external_locators(SWriter);
+
 #if HAVE_SECURITY
     if (!is_builtin)
     {
@@ -862,6 +871,11 @@ bool RTPSParticipantImpl::create_reader(
     {
         return false;
     }
+
+    // Use participant's external locators if reader has none
+    // WARNING: call before createAndAssociateReceiverswithEndpoint, as the latter intentionally clears external
+    // locators list when using unique_flows feature
+    setup_external_locators(SReader);
 
 #if HAVE_SECURITY
 
@@ -1481,7 +1495,6 @@ bool RTPSParticipantImpl::updateLocalReader(
  *
  */
 
-
 bool RTPSParticipantImpl::existsEntityId(
         const EntityId_t& ent,
         EndpointKind_t kind) const
@@ -1656,6 +1669,17 @@ bool RTPSParticipantImpl::createSendResources(
     }
 
     return true;
+}
+
+void RTPSParticipantImpl::setup_external_locators(
+        Endpoint* endpoint)
+{
+    auto& attributes = endpoint->getAttributes();
+    if (attributes.external_unicast_locators.empty())
+    {
+        // Take external locators from the participant.
+        attributes.external_unicast_locators = m_att.default_external_unicast_locators;
+    }
 }
 
 bool RTPSParticipantImpl::createReceiverResources(
@@ -2013,22 +2037,6 @@ bool RTPSParticipantImpl::newRemoteEndpointDiscovered(
     return false;
 }
 
-void RTPSParticipantImpl::ResourceSemaphorePost()
-{
-    if (mp_ResourceSemaphore != nullptr)
-    {
-        mp_ResourceSemaphore->post();
-    }
-}
-
-void RTPSParticipantImpl::ResourceSemaphoreWait()
-{
-    if (mp_ResourceSemaphore != nullptr)
-    {
-        mp_ResourceSemaphore->wait();
-    }
-}
-
 void RTPSParticipantImpl::assert_remote_participant_liveliness(
         const GuidPrefix_t& remote_guid)
 {
@@ -2108,7 +2116,7 @@ bool RTPSParticipantImpl::pairing_remote_reader_with_local_writer_after_security
 {
     bool return_value;
 
-    return_value = mp_builtinProtocols->mp_PDP->getEDP()->pairing_remote_reader_with_local_writer_after_security(
+    return_value = mp_builtinProtocols->mp_PDP->pairing_remote_reader_with_local_writer_after_security(
         local_writer, remote_reader_data);
     if (!return_value && mp_builtinProtocols->mp_WLP != nullptr)
     {
@@ -2125,7 +2133,7 @@ bool RTPSParticipantImpl::pairing_remote_writer_with_local_reader_after_security
 {
     bool return_value;
 
-    return_value = mp_builtinProtocols->mp_PDP->getEDP()->pairing_remote_writer_with_local_reader_after_security(
+    return_value = mp_builtinProtocols->mp_PDP->pairing_remote_writer_with_local_reader_after_security(
         local_reader, remote_writer_data);
     if (!return_value && mp_builtinProtocols->mp_WLP != nullptr)
     {
@@ -2183,6 +2191,11 @@ bool RTPSParticipantImpl::is_security_enabled_for_reader(
 }
 
 #endif // if HAVE_SECURITY
+
+PDP* RTPSParticipantImpl::pdp()
+{
+    return mp_builtinProtocols->mp_PDP;
+}
 
 PDPSimple* RTPSParticipantImpl::pdpsimple()
 {
@@ -2269,9 +2282,10 @@ void RTPSParticipantImpl::set_check_type_function(
     type_check_fn_ = std::move(check_type);
 }
 
-std::unique_ptr<RTPSMessageGroup_t> RTPSParticipantImpl::get_send_buffer()
+std::unique_ptr<RTPSMessageGroup_t> RTPSParticipantImpl::get_send_buffer(
+        const std::chrono::steady_clock::time_point& max_blocking_time)
 {
-    return send_buffers_->get_buffer(this);
+    return send_buffers_->get_buffer(this, max_blocking_time);
 }
 
 void RTPSParticipantImpl::return_send_buffer(
@@ -2504,6 +2518,69 @@ void RTPSParticipantImpl::get_default_unicast_locators()
     m_network_Factory.NormalizeLocators(m_att.defaultUnicastLocatorList);
 }
 
+bool RTPSParticipantImpl::is_participant_ignored(
+        const GuidPrefix_t& participant_guid)
+{
+    shared_lock<shared_mutex> _(ignored_mtx_);
+    return ignored_participants_.find(participant_guid) != ignored_participants_.end();
+}
+
+bool RTPSParticipantImpl::is_writer_ignored(
+        const GUID_t& /*writer_guid*/)
+{
+    return false;
+}
+
+bool RTPSParticipantImpl::is_reader_ignored(
+        const GUID_t& /*reader_guid*/)
+{
+    return false;
+}
+
+bool RTPSParticipantImpl::ignore_participant(
+        const GuidPrefix_t& participant_guid)
+{
+    if (participant_guid == m_guid.guidPrefix)
+    {
+        EPROSIMA_LOG_WARNING(RTPS_PARTICIPANT, "A participant is unable to ignore itself");
+        return false;
+    }
+    {
+        shared_lock<eprosima::shared_mutex> _(mp_builtinProtocols->getDiscoveryMutex());
+
+        for (auto server_it = m_att.builtin.discovery_config.m_DiscoveryServers.begin();
+                server_it != m_att.builtin.discovery_config.m_DiscoveryServers.end(); server_it++)
+        {
+            if (server_it->guidPrefix == participant_guid)
+            {
+                EPROSIMA_LOG_WARNING(RTPS_PARTICIPANT, "Cannot ignore one of this participant Discovery Servers");
+                return false;
+            }
+        }
+    }
+    {
+        std::unique_lock<shared_mutex> _(ignored_mtx_);
+        ignored_participants_.insert(participant_guid);
+    }
+    pdp()->remove_remote_participant(GUID_t(participant_guid, c_EntityId_RTPSParticipant),
+            ParticipantDiscoveryInfo::DISCOVERY_STATUS::IGNORED_PARTICIPANT);
+
+    return true;
+
+}
+
+bool RTPSParticipantImpl::ignore_writer(
+        const GUID_t& /*writer_guid*/)
+{
+    return false;
+}
+
+bool RTPSParticipantImpl::ignore_reader(
+        const GUID_t& /*reader_guid*/)
+{
+    return false;
+}
+
 #ifdef FASTDDS_STATISTICS
 
 bool RTPSParticipantImpl::register_in_writer(
@@ -2614,6 +2691,34 @@ void RTPSParticipantImpl::set_enabled_statistics_writers_mask(
 }
 
 #endif // FASTDDS_STATISTICS
+
+bool RTPSParticipantImpl::should_match_local_endpoints(
+        const RTPSParticipantAttributes& att)
+{
+    bool should_match_local_endpoints = true;
+
+    const std::string* ignore_local_endpoints = PropertyPolicyHelper::find_property(att.properties,
+                    "fastdds.ignore_local_endpoints");
+    if (nullptr != ignore_local_endpoints)
+    {
+        if (0 == ignore_local_endpoints->compare("true"))
+        {
+            should_match_local_endpoints = false;
+        }
+        else if (0 == ignore_local_endpoints->compare("false"))
+        {
+            should_match_local_endpoints = true;
+        }
+        else
+        {
+            should_match_local_endpoints = true;
+            EPROSIMA_LOG_ERROR(RTPS_PARTICIPANT,
+                    "Unkown value '" << *ignore_local_endpoints <<
+                    "' for property 'fastdds.ignore_local_endpoints'. Setting value to 'true'");
+        }
+    }
+    return should_match_local_endpoints;
+}
 
 } /* namespace rtps */
 } /* namespace fastrtps */

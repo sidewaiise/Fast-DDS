@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <utility>
-#include <cstring>
 #include <algorithm>
+#include <cstring>
+#include <utility>
 
 #ifdef ANDROID
 #include <boostconfig.hpp>
@@ -23,18 +23,17 @@
 
 #include <fastdds/dds/log/Log.hpp>
 #include <fastdds/rtps/common/Locator.h>
-#include <fastdds/rtps/network/ReceiverResource.h>
-#include <fastdds/rtps/network/SenderResource.h>
+#include <fastdds/rtps/transport/SenderResource.h>
 #include <fastdds/rtps/transport/TransportInterface.h>
-
 #include <fastrtps/rtps/messages/CDRMessage.h>
 #include <fastrtps/rtps/messages/MessageReceiver.h>
 
-#include <rtps/transport/shared_mem/SHMLocator.hpp>
-#include <rtps/transport/shared_mem/SharedMemTransport.h>
-#include <rtps/transport/shared_mem/SharedMemSenderResource.hpp>
+#include <rtps/network/ReceiverResource.h>
 #include <rtps/transport/shared_mem/SharedMemChannelResource.hpp>
 #include <rtps/transport/shared_mem/SharedMemManager.hpp>
+#include <rtps/transport/shared_mem/SharedMemSenderResource.hpp>
+#include <rtps/transport/shared_mem/SharedMemTransport.h>
+#include <rtps/transport/shared_mem/SHMLocator.hpp>
 #include <statistics/rtps/messages/RTPSStatisticsMessages.hpp>
 
 #define SHM_MANAGER_DOMAIN ("fastrtps")
@@ -177,6 +176,11 @@ bool SharedMemTransport::is_local_locator(
     return true;
 }
 
+bool SharedMemTransport::is_localhost_allowed() const
+{
+    return true;
+}
+
 void SharedMemTransport::delete_input_channel(
         SharedMemChannelResource* channel)
 {
@@ -268,6 +272,10 @@ bool SharedMemTransport::init(
     try
     {
         shared_mem_manager_ = SharedMemManager::create(SHM_MANAGER_DOMAIN);
+        if (!shared_mem_manager_)
+        {
+            return false;
+        }
         shared_mem_segment_ = shared_mem_manager_->create_segment(configuration_.segment_size(),
                         configuration_.port_queue_capacity());
 
@@ -389,7 +397,9 @@ Locator SharedMemTransport::RemoteToMainLocal(
 
 bool SharedMemTransport::transform_remote_locator(
         const Locator& remote_locator,
-        Locator& result_locator) const
+        Locator& result_locator,
+        bool,
+        bool) const
 {
     if (IsLocatorSupported(remote_locator))
     {
@@ -424,6 +434,10 @@ bool SharedMemTransport::send(
         const std::chrono::steady_clock::time_point& max_blocking_time_point)
 {
     using namespace eprosima::fastdds::statistics::rtps;
+
+#if !defined(_WIN32)
+    cleanup_output_ports();
+#endif // if !defined(_WIN32)
 
     fastrtps::rtps::LocatorsIterator& it = *destination_locators_begin;
 
@@ -475,6 +489,22 @@ bool SharedMemTransport::send(
 
 }
 
+void SharedMemTransport::cleanup_output_ports()
+{
+    auto it = opened_ports_.begin();
+    while (it != opened_ports_.end())
+    {
+        if (it->second->has_listeners())
+        {
+            ++it;
+        }
+        else
+        {
+            it = opened_ports_.erase(it);
+        }
+    }
+}
+
 std::shared_ptr<SharedMemManager::Port> SharedMemTransport::find_port(
         uint32_t port_id)
 {
@@ -502,9 +532,22 @@ bool SharedMemTransport::push_discard(
 {
     try
     {
-        if (!find_port(remote_locator.port)->try_push(buffer))
+        bool is_port_ok = false;
+        const size_t num_retries = 2;
+        for (size_t i = 0; i < num_retries && !is_port_ok; ++i)
         {
-            EPROSIMA_LOG_INFO(RTPS_MSG_OUT, "Port " << remote_locator.port << " full. Buffer dropped");
+            if (!find_port(remote_locator.port)->try_push(buffer, is_port_ok))
+            {
+                if (is_port_ok)
+                {
+                    EPROSIMA_LOG_INFO(RTPS_MSG_OUT, "Port " << remote_locator.port << " full. Buffer dropped");
+                }
+                else
+                {
+                    EPROSIMA_LOG_WARNING(RTPS_MSG_OUT, "Port " << remote_locator.port << " inconsistent. Port dropped");
+                    opened_ports_.erase(remote_locator.port);
+                }
+            }
         }
     }
     catch (const std::exception& error)

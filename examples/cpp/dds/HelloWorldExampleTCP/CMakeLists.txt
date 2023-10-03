@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-cmake_minimum_required(VERSION 3.16.3)
+cmake_minimum_required(VERSION 3.22)
 
 project("HelloWorldExampleTCP" VERSION 1 LANGUAGES CXX)
 
 # Find requirements
 if(NOT fastcdr_FOUND)
-    find_package(fastcdr REQUIRED)
+    find_package(fastcdr 2 REQUIRED)
 endif()
 
 if(NOT foonathan_memory_FOUND)
@@ -26,7 +26,7 @@ if(NOT foonathan_memory_FOUND)
 endif()
 
 if(NOT fastrtps_FOUND)
-    find_package(fastrtps REQUIRED)
+    find_package(fastrtps 2.12 REQUIRED)
 endif()
 
 #Check C++11
@@ -43,8 +43,8 @@ file(GLOB DDS_TCP_HELLOWORLD_EXAMPLE_SOURCES_CXX "*.cxx")
 file(GLOB DDS_TCP_HELLOWORLD_EXAMPLE_SOURCES_CPP "*.cpp")
 #file(GLOB XML_CONFIG_FILES "*.xml")
 #message(STATUS "XML Files: " ${XML_CONFIG_FILES})
-configure_file("HelloWorldSubscriber.xml" "HelloWorldSubscriber.xml" COPYONLY)
-configure_file("HelloWorldPublisher.xml" "HelloWorldPublisher.xml" COPYONLY)
+configure_file("HelloWorldSubscriber_static_disc.xml" "HelloWorldSubscriber_static_disc.xml" COPYONLY)
+configure_file("HelloWorldPublisher_static_disc.xml" "HelloWorldPublisher_static_disc.xml" COPYONLY)
 configure_file("dh2048.pem" "dh2048.pem" COPYONLY)
 configure_file("serverkey.pem" "serverkey.pem" COPYONLY)
 configure_file("servercert.pem" "servercert.pem" COPYONLY)

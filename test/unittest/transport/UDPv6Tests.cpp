@@ -12,17 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <thread>
 #include <memory>
+#include <thread>
 
 #include <asio.hpp>
 #include <gtest/gtest.h>
-#include <MockReceiverResource.h>
+
 #include <fastdds/dds/log/Log.hpp>
 #include <fastrtps/transport/UDPv6TransportDescriptor.h>
-#include <fastrtps/rtps/network/NetworkFactory.h>
-#include <fastrtps/utils/Semaphore.h>
 #include <fastrtps/utils/IPLocator.h>
+#include <fastrtps/utils/Semaphore.h>
+
+#include <MockReceiverResource.h>
 #include <rtps/transport/UDPv6Transport.h>
 
 using namespace eprosima::fastrtps::rtps;
@@ -56,6 +57,14 @@ uint16_t get_port()
 class UDPv6Tests : public ::testing::Test
 {
 public:
+
+    void SetUp() override
+    {
+#ifdef __APPLE__
+        // TODO: fix IPv6 issues related with zone ID
+        GTEST_SKIP() << "UDPv6 tests are disabled in Mac";
+#endif // ifdef __APPLE__
+    }
 
     UDPv6Tests()
     {

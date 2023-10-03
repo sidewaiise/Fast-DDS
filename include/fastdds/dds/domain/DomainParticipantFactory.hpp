@@ -36,6 +36,9 @@ namespace eprosima {
 
 namespace fastrtps {
 namespace rtps {
+
+class RTPSDomainImpl;
+
 namespace detail {
 class TopicPayloadPoolRegistry;
 }  // namespace detail
@@ -48,6 +51,10 @@ namespace dds {
 class DomainParticipantListener;
 class DomainParticipant;
 class DomainParticipantImpl;
+
+namespace detail {
+struct LogResources;
+}  // namespace detail
 
 /**
  * Class DomainParticipantFactory
@@ -303,6 +310,17 @@ protected:
     DomainParticipantQos default_participant_qos_;
 
     std::shared_ptr<fastrtps::rtps::detail::TopicPayloadPoolRegistry> topic_pool_;
+
+    std::shared_ptr<fastrtps::rtps::RTPSDomainImpl> rtps_domain_;
+
+    std::shared_ptr<detail::LogResources> log_resources_;
+
+    /**
+     * This mutex guards the access to load the profiles.
+     * Is used to lock every thread that is trying to load the profiles, so only the first one loads it and
+     * until it is not finished the rest of them does not leave function \c load_profiles .
+     */
+    mutable std::mutex default_xml_profiles_loaded_mtx_;
 };
 
 }  // namespace dds

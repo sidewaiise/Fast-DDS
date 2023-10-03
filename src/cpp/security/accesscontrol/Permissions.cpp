@@ -44,6 +44,7 @@
 #include <openssl/obj_mac.h>
 
 #include <security/artifact_providers/FileProvider.hpp>
+#include <security/accesscontrol/DistinguishedName.h>
 
 #include <cassert>
 #include <fstream>
@@ -275,77 +276,93 @@ static bool get_signature_algorithm(
     return returnedValue;
 }
 
-static bool rfc2253_string_compare(
-        const std::string& str1,
-        const std::string& str2)
+// Auxiliary functions
+static BIO* load_and_verify_document(
+        X509_STORE* store,
+        BIO* in,
+        SecurityException& exception)
 {
-    bool returned_value = true;
+    BIO* out = nullptr;
 
-    size_t str1_mark_low = 0, str1_mark_high = 0, str2_mark_low = 0, str2_mark_high = 0;
+    assert(nullptr != store);
+    assert(nullptr != in);
 
-    str1_mark_high = str1.find_first_of(',');
-    if (str1_mark_high == std::string::npos)
+    // Create PKCS7 object from input data
+    BIO* indata = nullptr;
+    PKCS7* p7 = SMIME_read_PKCS7(in, &indata);
+    if (nullptr == p7)
     {
-        str1_mark_high = str1.length();
-    }
-    str2_mark_high = str2.find_first_of(',');
-    if (str2_mark_high == std::string::npos)
-    {
-        str2_mark_high = str2.length();
-    }
-
-    while (str1_mark_low < str1_mark_high && str2_mark_low < str2_mark_high)
-    {
-        // Trim
-        size_t str1_trim_high = str1_mark_high - 1, str2_trim_high = str2_mark_high - 1;
-
-        while (str1.at(str1_mark_low) == ' ' && (str1_mark_low + 1) != str1_trim_high)
-        {
-            ++str1_mark_low;
-        }
-        while (str2.at(str2_mark_low) == ' ' && (str2_mark_low + 1) != str2_trim_high)
-        {
-            ++str2_mark_low;
-        }
-        while (str1.at(str1_trim_high) == ' ' && (str1_trim_high - 1) != str1_mark_low)
-        {
-            --str1_trim_high;
-        }
-        while (str2.at(str2_trim_high) == ' ' && (str2_trim_high - 1) != str2_mark_low)
-        {
-            --str2_trim_high;
-        }
-
-        if (str1.compare(str1_mark_low, str1_trim_high - str1_mark_low + 1, str2,
-                str2_mark_low, str2_trim_high - str2_mark_low + 1) != 0)
-        {
-            returned_value = false;
-            break;
-        }
-
-        str1_mark_low = str1_mark_high + 1;
-        str2_mark_low = str2_mark_high + 1;
-        str1_mark_high = str1.find_first_of(',', str1_mark_low);
-        if (str1_mark_high == std::string::npos)
-        {
-            str1_mark_high = str1.length();
-        }
-        str2_mark_high = str2.find_first_of(',', str2_mark_low);
-        if (str2_mark_high == std::string::npos)
-        {
-            str2_mark_high = str2.length();
-        }
+        exception = _SecurityException_("Input data has not PKCS7 S/MIME format");
+        return nullptr;
     }
 
-    if (str1_mark_low < str1_mark_high || str2_mark_low < str2_mark_high)
+    // ---- Get certificate stack from store ----
+    // The following lines are almost equivalent to the OpenSSL 3 API X509_STORE_get1_all_certs.
+    // It creates a stack of X509 objects and populates the stack with the X509 objects contained in the store.
+    STACK_OF(X509) * stack = sk_X509_new_null();
+    if (nullptr == stack)
     {
-        returned_value = false;
+        exception = _SecurityException_("Cannot allocate certificate stack");
+    }
+    else
+    {
+        STACK_OF(X509_OBJECT) * objects = X509_STORE_get0_objects(store);
+        int i = 0;
+        for (i = 0; i < sk_X509_OBJECT_num(objects); i++)
+        {
+            X509_OBJECT* tmp = sk_X509_OBJECT_value(objects, i);
+            X509* cert = X509_OBJECT_get0_X509(tmp);
+            if (nullptr != cert)
+            {
+                sk_X509_push(stack, cert);
+            }
+        }
+
+        if (1 != sk_X509_num(stack))
+        {
+            exception = _SecurityException_("Certificate store should have exactly one certificate");
+
+            sk_X509_free(stack);
+            stack = nullptr;
+        }
+    }
+    // ---- Finished getting certificate stack from store ----
+
+    if (nullptr != stack)
+    {
+        // Allocate output data
+        out = BIO_new(BIO_s_mem());
+        if (nullptr == out)
+        {
+            exception = _SecurityException_("Cannot allocate output BIO");
+        }
+        else
+        {
+            // Verify the input data using exclusively the certificates in the stack.
+            // PKCS7_NOINTERN is used to ignore certificates coming alongside the signed data.
+            // PKCS7_NOVERIFY is used since the permissions CA certificate will not be chain verified.
+            if (!PKCS7_verify(p7, stack, nullptr, indata, out, PKCS7_TEXT | PKCS7_NOVERIFY | PKCS7_NOINTERN))
+            {
+                exception = _SecurityException_("PKCS7 data verification failed");
+                BIO_free(out);
+                out = nullptr;
+            }
+        }
+
+        // Free the certificate stack
+        sk_X509_free(stack);
     }
 
-    return returned_value;
+    PKCS7_free(p7);
+
+    if (indata != nullptr)
+    {
+        BIO_free(indata);
+    }
+
+    return out;
 }
 
-// Auxiliary functions
 static X509_STORE* load_permissions_ca(
         const std::string& permissions_ca,
         bool& there_are_crls,
@@ -374,34 +391,9 @@ static BIO* load_signed_file(
     if (file.size() >= 7 && file.compare(0, 7, "file://") == 0)
     {
         BIO* in = BIO_new_file(file.substr(7).c_str(), "r");
-
         if (in != nullptr)
         {
-            BIO* indata = nullptr;
-            PKCS7* p7 = SMIME_read_PKCS7(in, &indata);
-
-            if (p7 != nullptr)
-            {
-                out = BIO_new(BIO_s_mem());
-                if (!PKCS7_verify(p7, nullptr, store, indata, out, PKCS7_TEXT))
-                {
-                    exception = _SecurityException_(std::string("Failed verification of the file ") + file);
-                    BIO_free(out);
-                    out = nullptr;
-                }
-
-                PKCS7_free(p7);
-            }
-            else
-            {
-                exception = _SecurityException_(std::string("Cannot read as PKCS7 the file ") + file);
-            }
-
-            if (indata != nullptr)
-            {
-                BIO_free(indata);
-            }
-
+            out = load_and_verify_document(store, in, exception);
             BIO_free(in);
         }
         else
@@ -506,55 +498,37 @@ static bool verify_permissions_file(
     if (permissions_file.size() <= static_cast<size_t>(std::numeric_limits<int>::max()))
     {
         BIO* permissions_buf = BIO_new_mem_buf(permissions_file.data(), static_cast<int>(permissions_file.size()));
-
         if (permissions_buf != nullptr)
         {
-            BIO* indata = nullptr;
-            PKCS7* p7 = SMIME_read_PKCS7(permissions_buf, &indata);
-
-            if (p7 != nullptr)
+            BIO* out = load_and_verify_document(local_handle->store_, permissions_buf, exception);
+            if (nullptr != out)
             {
-                BIO* out = BIO_new(BIO_s_mem());
-                if (PKCS7_verify(p7, nullptr, local_handle->store_, indata, out, PKCS7_TEXT))
-                {
-                    BUF_MEM* ptr = nullptr;
-                    BIO_get_mem_ptr(out, &ptr);
+                BUF_MEM* ptr = nullptr;
+                BIO_get_mem_ptr(out, &ptr);
 
-                    if (ptr != nullptr)
+                if (ptr != nullptr)
+                {
+                    PermissionsParser parser;
+                    if ((returned_value = parser.parse_stream(ptr->data, ptr->length)) == true)
                     {
-                        PermissionsParser parser;
-                        if ((returned_value = parser.parse_stream(ptr->data, ptr->length)) == true)
-                        {
-                            parser.swap(permissions);
-                            returned_value = true;
-                        }
-                        else
-                        {
-                            exception = _SecurityException_(std::string(
-                                                "Malformed permissions file ") + permissions_file);
-                        }
+                        parser.swap(permissions);
+                        returned_value = true;
                     }
                     else
                     {
-                        exception = _SecurityException_("OpenSSL library cannot retrieve mem ptr from file.");
+                        exception = _SecurityException_(std::string(
+                                            "Malformed permissions file ") + permissions_file);
                     }
                 }
                 else
                 {
-                    exception = _SecurityException_("Failed verification of the permissions file");
+                    exception = _SecurityException_("OpenSSL library cannot retrieve mem ptr from file.");
                 }
-
                 BIO_free(out);
-                PKCS7_free(p7);
             }
             else
             {
                 exception = _SecurityException_("Cannot read as PKCS7 the permissions file.");
-            }
-
-            if (indata != nullptr)
-            {
-                BIO_free(indata);
             }
 
             BIO_free(permissions_buf);
@@ -642,6 +616,21 @@ static bool check_subject_name(
                             ah->governance_rule_.is_liveliness_protected,
                             plug_part_attr.is_liveliness_encrypted,
                             plug_part_attr.is_liveliness_origin_authenticated);
+
+                    if (rule.allow_unauthenticated_participants)
+                    {
+                        if (ah->governance_rule_.is_rtps_protected)
+                        {
+                            exception = _SecurityException_(
+                                "allow_unauthenticated_participants cannot be enabled if rtps_protection_kind is not none");
+                            returned_value = false;
+                            break;
+                        }
+                        else
+                        {
+                            ah->governance_rule_.allow_unauthenticated_participants = true;
+                        }
+                    }
 
                     ah->governance_rule_.plugin_participant_attributes = plug_part_attr.mask();
 

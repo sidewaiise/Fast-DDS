@@ -51,7 +51,7 @@ add_executable(BuiltinPKIDH ${COMMON_SOURCES_AUTH_PLUGIN_TEST_SOURCE}
     ${PROJECT_SOURCE_DIR}/src/cpp/utils/IPLocator.cpp
     ${PROJECT_SOURCE_DIR}/src/cpp/utils/SystemInfo.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/BuiltinPKIDHTests.cpp)
-target_compile_definitions(BuiltinPKIDH PRIVATE FASTRTPS_NO_LIB
+target_compile_definitions(BuiltinPKIDH PRIVATE
     BOOST_ASIO_STANDALONE
     ASIO_STANDALONE
     $<$<AND:$<NOT:$<BOOL:${WIN32}>>,$<STREQUAL:"${CMAKE_BUILD_TYPE}","Debug">>:__DEBUG>
@@ -72,6 +72,9 @@ target_link_libraries(BuiltinPKIDH
     $<$<BOOL:${WIN32}>:ws2_32>
     $<$<BOOL:${LibP11_FOUND}>:eProsima_p11>  # $<TARGET_NAME_IF_EXISTS:eProsima_p11>
     )
+if(QNX)
+    target_link_libraries(BuiltinPKIDH socket)
+endif()
 add_gtest(BuiltinPKIDH
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/BuiltinPKIDHTests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/AuthenticationPluginTests.hpp

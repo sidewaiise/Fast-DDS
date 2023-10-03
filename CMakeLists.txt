@@ -15,8 +15,7 @@
 ###############################################################################
 # CMake build rules for Fast DDS
 ###############################################################################
-cmake_minimum_required(VERSION 3.16.3)
-cmake_policy(VERSION 3.16.3...3.20.3)
+cmake_minimum_required(VERSION 3.22)
 
 # Set CMAKE_BUILD_TYPE to Release by default.
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -30,7 +29,7 @@ endif()
 ###############################################################################
 # Project                                                                     #
 ###############################################################################
-project(fastrtps VERSION "2.9.0" LANGUAGES C CXX)
+project(fastrtps VERSION "2.12.0" LANGUAGES C CXX)
 
 set(PROJECT_NAME_LARGE "Fast RTPS")
 string(TOUPPER "${PROJECT_NAME}" PROJECT_NAME_UPPER)
@@ -75,7 +74,8 @@ else()
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-psabi")
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--no-undefined")
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-undefined,error")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-builtins")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl")
     endif()
 
     if(EPROSIMA_BUILD)
@@ -191,7 +191,7 @@ if(APPEND_PROJECT_NAME_TO_INCLUDEDIR)
 endif()
 set(INCLUDE_INSTALL_DIR "${_include_dir}" CACHE PATH "Installation directory for C++ headers")
 unset(_include_dir)
-set(LIB_INSTALL_DIR lib/ CACHE PATH "Installation directory for libraries")
+set(LIB_INSTALL_DIR lib${LIB_SUFFIX}/ CACHE PATH "Installation directory for libraries")
 set(DATA_INSTALL_DIR share/ CACHE PATH "Installation directory for data")
 if(WIN32)
     set(DOC_DIR "doc")
@@ -232,7 +232,7 @@ if(NOT BUILD_SHARED_LIBS)
     set(FASTDDS_STATIC ON)
 endif()
 
-eprosima_find_package(fastcdr REQUIRED)
+eprosima_find_package(fastcdr 2.0 REQUIRED)
 eprosima_find_thirdparty(Asio asio VERSION 1.10.8)
 eprosima_find_thirdparty(TinyXML2 tinyxml2)
 
@@ -254,10 +254,14 @@ include_directories(thirdparty/filewatch)
 ###############################################################################
 option(SECURITY "Activate security" OFF)
 
-if(SECURITY)
-    find_package(OpenSSL REQUIRED)
+if(QNX)
+    set(OPENSSL_FOUND 1)
 else()
-    find_package(OpenSSL)
+    if(SECURITY)
+        find_package(OpenSSL REQUIRED)
+    else()
+        find_package(OpenSSL)
+    endif()
 endif()
 
 if(OPENSSL_FOUND)
@@ -275,6 +279,20 @@ if(SECURITY OR TLS_FOUND)
     set(LINK_SSL 1)
 else()
     set(LINK_SSL 0)
+endif()
+
+if(SECURITY AND QNX)
+    add_library(OpenSSL::SSL INTERFACE IMPORTED)
+    add_library(OpenSSL::Crypto INTERFACE IMPORTED)
+
+    set_target_properties(OpenSSL::SSL PROPERTIES
+        INTERFACE_LINK_LIBRARIES ssl
+    )
+    set_target_properties(OpenSSL::Crypto PROPERTIES
+        INTERFACE_LINK_LIBRARIES crypto
+    )
+
+    set(OPENSSL_LIBRARIES ssl crypto)
 endif()
 
 option(SQLITE3_SUPPORT "Activate SQLITE3 support" ON)
@@ -484,12 +502,27 @@ if(BUILD_DOCUMENTATION)
 
         file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/readthedocs_custom_template.cmake [=[
 
-            file(DOWNLOAD "https://fast-dds.docs.eprosima.com/_/downloads/en/v${PROJECT_VERSION}/htmlzip/" "./eprosima-fast-rtps.zip")
+            file(DOWNLOAD "https://fast-dds.docs.eprosima.com/_/downloads/en/v${PROJECT_VERSION}/htmlzip/" "./eprosima-fast-rtps.zip"
+                 STATUS DOWNLOAD_STATUS)
+
+            # As stated in CMake's documentation: https://cmake.org/cmake/help/latest/command/file.html#transfer
+            # STATUS will return a list with two elements: the numeric status and the message returned.
+            # A 0 numeric error means no error in the operation
+            list(GET DOWNLOAD_STATUS 0 DOWNLOAD_RC)
+
+            if (DOWNLOAD_RC)
+                message(STATUS "Unable to download documentation for version ${PROJECT_VERSION}. Falling back to latest.")
+                file(DOWNLOAD "https://fast-dds.docs.eprosima.com/_/downloads/en/latest/htmlzip/" "./eprosima-fast-rtps.zip")
+            endif()
             # TODO: when windows ci CMake version surpasses 17 favor file() instead of UNZIP as in the next line
             # file(ARCHIVE_EXTRACT INPUT "./eprosima-fast-rtps.zip" DESTINATION  "${PROJECT_BINARY_DIR}/doc/")
             execute_process(COMMAND "${UNZIP_EXE}" "./eprosima-fast-rtps.zip" -d "${PROJECT_BINARY_DIR}/doc/")
             file(REMOVE_RECURSE "${PROJECT_BINARY_DIR}/doc/manual")
-            file(RENAME "${PROJECT_BINARY_DIR}/doc/eprosima-fast-rtps-v${PROJECT_VERSION}" "${PROJECT_BINARY_DIR}/doc/manual")
+            if (DOWNLOAD_RC)
+                file(RENAME "${PROJECT_BINARY_DIR}/doc/eprosima-fast-rtps-latest" "${PROJECT_BINARY_DIR}/doc/manual")
+            else()
+                file(RENAME "${PROJECT_BINARY_DIR}/doc/eprosima-fast-rtps-v${PROJECT_VERSION}" "${PROJECT_BINARY_DIR}/doc/manual")
+            endif()
             file(REMOVE  "./eprosima-fast-rtps.zip")
 
             ]=])
@@ -519,6 +552,17 @@ endif()
 install(FILES ${PROJECT_SOURCE_DIR}/LICENSE
     DESTINATION ${LICENSE_INSTALL_DIR}
     COMPONENT licenses
+    )
+
+# Install xml validators
+install(FILES ${PROJECT_SOURCE_DIR}/resources/xsd/fastRTPS_profiles.xsd
+    DESTINATION ${DATA_INSTALL_DIR}
+    COMPONENT xsd
+    )
+
+install(FILES ${PROJECT_SOURCE_DIR}/resources/xsd/fastdds_static_discovery.xsd
+    DESTINATION ${DATA_INSTALL_DIR}
+    COMPONENT xsd
     )
 
 option(INSTALL_EXAMPLES "Install example" OFF)

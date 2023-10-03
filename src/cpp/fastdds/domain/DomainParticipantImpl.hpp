@@ -328,25 +328,40 @@ public:
 
     // TODO Subscriber* get_builtin_subscriber();
 
-    /* TODO
-       bool ignore_participant(
-            const InstanceHandle_t& handle);
+    /**
+     * @brief Locally ignore a remote domain participant.
+     *
+     * @param[in] handle Identifier of the remote participant to ignore.
+     * @return RETCODE_NOT_ENABLED if the participant is not enabled.
+     *         RETCODE_ERROR if unable to ignore.
+     *         RETCODE_OK if successful.
+     *
      */
+    ReturnCode_t ignore_participant(
+            const InstanceHandle_t& handle);
 
     /* TODO
        bool ignore_topic(
             const InstanceHandle_t& handle);
      */
 
-    /* TODO
-       bool ignore_publication(
-            const InstanceHandle_t& handle);
+    /**
+     * @brief Locally ignore a remote datawriter.
+     *
+     * @param[in] handle Identifier of the remote datawriter to ignore.
+     * @return true if correctly ignored. False otherwise.
      */
+    bool ignore_publication(
+            const InstanceHandle_t& handle);
 
-    /* TODO
-       bool ignore_subscription(
-            const InstanceHandle_t& handle);
+    /**
+     * @brief Locally ignore a remote datareader.
+     *
+     * @param[in] handle Identifier of the remote datareader to ignore.
+     * @return true if correctly ignored. False otherwise.
      */
+    bool ignore_subscription(
+            const InstanceHandle_t& handle);
 
     DomainId_t get_domain_id() const;
 
@@ -474,6 +489,23 @@ public:
     fastrtps::rtps::SampleIdentity get_types(
             const fastrtps::types::TypeIdentifierSeq& in) const;
 
+    /**
+     * Helps the user to solve all dependencies calling internally to the typelookup service and
+     * registers the resulting dynamic type.
+     * The registration may be perform asynchronously, case in which the user will be notified
+     * through the given callback, which receives the type_name as unique argument.
+     *
+     * @param type_information
+     * @param type_name
+     * @param callback
+     * @return RETCODE_OK If the given type_information is enough to build the type without using
+     *         the typelookup service (callback will not be called).
+     * @return RETCODE_OK if the given type is already available (callback will not be called).
+     * @return RETCODE_NO_DATA if type is not available yet (the callback will be called if
+     *         negotiation is success, and ignored in other case).
+     * @return RETCODE_NOT_ENABLED if the DomainParticipant is not enabled.
+     * @return RETCODE_PRECONDITION_NOT_MET if the DomainParticipant type lookup service is disabled.
+     */
     ReturnCode_t register_remote_type(
             const fastrtps::types::TypeInformation& type_information,
             const std::string& type_name,
@@ -646,7 +678,8 @@ protected:
 
         void onParticipantDiscovery(
                 fastrtps::rtps::RTPSParticipant* participant,
-                fastrtps::rtps::ParticipantDiscoveryInfo&& info) override;
+                fastrtps::rtps::ParticipantDiscoveryInfo&& info,
+                bool& should_be_ignored) override;
 
 #if HAVE_SECURITY
         void onParticipantAuthentication(

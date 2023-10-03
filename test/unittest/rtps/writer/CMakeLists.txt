@@ -31,7 +31,7 @@ if(WIN32)
 endif()
 
 add_executable(ReaderProxyTests ${WRITERPROXYTESTS_SOURCE})
-target_compile_definitions(ReaderProxyTests PRIVATE FASTRTPS_NO_LIB
+target_compile_definitions(ReaderProxyTests PRIVATE
     BOOST_ASIO_STANDALONE
     ASIO_STANDALONE
     $<$<AND:$<NOT:$<BOOL:${WIN32}>>,$<STREQUAL:"${CMAKE_BUILD_TYPE}","Debug">>:__DEBUG>
@@ -56,7 +56,9 @@ target_include_directories(ReaderProxyTests PRIVATE
     ${THIRDPARTY_BOOST_INCLUDE_DIR}
     )
 target_link_libraries(ReaderProxyTests
-    GTest::gmock foonathan_memory
+    fastcdr
+    foonathan_memory
+    GTest::gmock
     ${CMAKE_DL_LIBS}
     ${THIRDPARTY_BOOST_LINK_LIBS})
 add_gtest(ReaderProxyTests SOURCES ${WRITERPROXYTESTS_SOURCE})
@@ -75,7 +77,7 @@ set(LIVELINESSMANAGERTESTS_SOURCE LivelinessManagerTests.cpp
     ${PROJECT_SOURCE_DIR}/src/cpp/utils/SystemInfo.cpp)
 
 add_executable(LivelinessManagerTests ${LIVELINESSMANAGERTESTS_SOURCE})
-target_compile_definitions(LivelinessManagerTests PRIVATE FASTRTPS_NO_LIB
+target_compile_definitions(LivelinessManagerTests PRIVATE
     BOOST_ASIO_STANDALONE
     ASIO_STANDALONE
     $<$<AND:$<NOT:$<BOOL:${WIN32}>>,$<STREQUAL:"${CMAKE_BUILD_TYPE}","Debug">>:__DEBUG>
@@ -91,21 +93,23 @@ target_link_libraries(LivelinessManagerTests PRIVATE
     GTest::gmock)
 add_gtest(LivelinessManagerTests SOURCES ${LIVELINESSMANAGERTESTS_SOURCE})
 
-set(RTPSWRITERTESTS_SOURCE RTPSWriterTests.cpp)
+if(NOT QNX)
+    set(RTPSWRITERTESTS_SOURCE RTPSWriterTests.cpp)
 
-add_executable(RTPSWriterTests ${RTPSWRITERTESTS_SOURCE})
-target_compile_definitions(RTPSWriterTests PRIVATE
-    BOOST_ASIO_STANDALONE
-    ASIO_STANDALONE
-    $<$<AND:$<NOT:$<BOOL:${WIN32}>>,$<STREQUAL:"${CMAKE_BUILD_TYPE}","Debug">>:__DEBUG>
-    $<$<BOOL:${INTERNAL_DEBUG}>:__INTERNALDEBUG> # Internal debug activated.
-    )
-target_include_directories(RTPSWriterTests PRIVATE
-    ${Asio_INCLUDE_DIR})
-target_link_libraries(RTPSWriterTests fastcdr fastrtps foonathan_memory
-    GTest::gmock
-    ${CMAKE_DL_LIBS})
-add_gtest(RTPSWriterTests SOURCES ${RTPSWRITERTESTS_SOURCE})
+    add_executable(RTPSWriterTests ${RTPSWRITERTESTS_SOURCE})
+    target_compile_definitions(RTPSWriterTests PRIVATE
+        BOOST_ASIO_STANDALONE
+        ASIO_STANDALONE
+        $<$<AND:$<NOT:$<BOOL:${WIN32}>>,$<STREQUAL:"${CMAKE_BUILD_TYPE}","Debug">>:__DEBUG>
+        $<$<BOOL:${INTERNAL_DEBUG}>:__INTERNALDEBUG> # Internal debug activated.
+        )
+    target_include_directories(RTPSWriterTests PRIVATE
+        ${Asio_INCLUDE_DIR})
+    target_link_libraries(RTPSWriterTests fastcdr fastrtps foonathan_memory
+        GTest::gmock
+        ${CMAKE_DL_LIBS})
+    add_gtest(RTPSWriterTests SOURCES ${RTPSWRITERTESTS_SOURCE})
+endif()
 
 if(ANDROID)
     set_property(TARGET ReaderProxyTests PROPERTY CROSSCOMPILING_EMULATOR "adb;shell;cd;${CMAKE_CURRENT_BINARY_DIR};&&")

@@ -134,7 +134,7 @@ public:
     /**
      * Add a specific change to all ReaderLocators.
      * @param p Pointer to the change.
-     * @param max_blocking_time
+     * @param[in] max_blocking_time Maximum time this method has to complete the task.
      */
     void unsent_change_added_to_history(
             CacheChange_t* p,
@@ -143,10 +143,12 @@ public:
     /**
      * Indicate the writer that a change has been removed by the history due to some HistoryQos requirement.
      * @param a_change Pointer to the change that is going to be removed.
+     * @param[in] max_blocking_time Maximum time this method has to complete the task.
      * @return True if removed correctly.
      */
     bool change_removed_by_history(
-            CacheChange_t* a_change) override;
+            CacheChange_t* a_change,
+            const std::chrono::time_point<std::chrono::steady_clock>& max_blocking_time) override;
 
     /**
      * Sends a change directly to a intraprocess reader.
@@ -201,6 +203,17 @@ public:
      */
     bool matched_reader_is_matched(
             const GUID_t& reader_guid) override;
+
+    /**
+     * @brief Check if a specific change has been delivered to the transport layer at least once for every matched
+     * remote RTPSReader.
+     *
+     * @param seq_num Sequence number of the change to check.
+     * @return true if delivered.
+     * @return false otherwise.
+     */
+    bool has_been_fully_delivered(
+            const SequenceNumber_t& seq_num) const override;
 
     bool is_acked_by_all(
             const CacheChange_t* a_change) const override;
@@ -296,7 +309,7 @@ public:
      *
      * @return True if positive acks are disabled, false otherwise
      */
-    inline bool get_disable_positive_acks() const
+    bool get_disable_positive_acks() const override
     {
         return disable_positive_acks_;
     }
@@ -307,6 +320,13 @@ public:
      */
     void updateTimes(
             const WriterTimes& times);
+
+    /**
+     * Update the period of the disable positive ACKs policy.
+     * @param att WriterAttributes parameter.
+     */
+    void updatePositiveAcks(
+            const WriterAttributes& att);
 
     SequenceNumber_t next_sequence_number() const;
 

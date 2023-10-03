@@ -25,10 +25,13 @@
 #include <mutex>
 #include <vector>
 
-#include <fastdds/rtps/Endpoint.h>
+#include <fastcdr/CdrSizeCalculator.hpp>
+
 #include <fastdds/rtps/attributes/HistoryAttributes.h>
 #include <fastdds/rtps/attributes/WriterAttributes.h>
 #include <fastdds/rtps/builtin/data/ReaderProxyData.h>
+#include <fastdds/rtps/common/CdrSerialization.hpp>
+#include <fastdds/rtps/Endpoint.h>
 #include <fastdds/rtps/interfaces/IReaderDataFilter.hpp>
 #include <fastdds/rtps/messages/RTPSMessageGroup.h>
 #include "DeliveryRetCode.hpp"
@@ -122,7 +125,10 @@ public:
     {
         return new_change([data]() -> uint32_t
                        {
-                           return (uint32_t)T::getCdrSerializedSize(data);
+                           eprosima::fastcdr::CdrSizeCalculator calculator(
+                               eprosima::fastdds::rtps::DEFAULT_XCDR_VERSION);
+                           size_t current_alignment {0};
+                           return (uint32_t)calculator.calculate_serialized_size(data, current_alignment);
                        }, changeKind, handle);
     }
 
@@ -193,6 +199,20 @@ public:
      * @return The content filter used on this writer.
      */
     RTPS_DllAPI virtual const fastdds::rtps::IReaderDataFilter* reader_data_filter() const = 0;
+
+    /**
+     * @brief Check if a specific change has been delivered to the transport layer of every matched remote RTPSReader
+     * at least once.
+     *
+     * @param seq_num Sequence number of the change to check.
+     * @return true if delivered. False otherwise.
+     */
+    RTPS_DllAPI virtual bool has_been_fully_delivered(
+            const SequenceNumber_t& seq_num) const
+    {
+        static_cast<void>(seq_num);
+        return false;
+    }
 
     /**
      * Check if a specific change has been acknowledged by all Readers.
@@ -279,6 +299,17 @@ public:
      */
     RTPS_DllAPI bool remove_older_changes(
             unsigned int max = 0);
+
+    /**
+     * @brief Returns if disable positive ACKs QoS is enabled.
+     *
+     * @return Best effort writers always return false.
+     *         Reliable writers override this method.
+     */
+    RTPS_DllAPI virtual bool get_disable_positive_acks() const
+    {
+        return false;
+    }
 
     /**
      * Tries to remove a change waiting a maximum of the provided microseconds.
@@ -510,7 +541,7 @@ protected:
     /**
      * Add a change to the unsent list.
      * @param change Pointer to the change to add.
-     * @param max_blocking_time
+     * @param[in] max_blocking_time Maximum time this method has to complete the task.
      */
     virtual void unsent_change_added_to_history(
             CacheChange_t* change,
@@ -519,10 +550,12 @@ protected:
     /**
      * Indicate the writer that a change has been removed by the history due to some HistoryQos requirement.
      * @param a_change Pointer to the change that is going to be removed.
+     * @param[in] max_blocking_time Maximum time this method has to complete the task.
      * @return True if removed correctly.
      */
     virtual bool change_removed_by_history(
-            CacheChange_t* a_change) = 0;
+            CacheChange_t* a_change,
+            const std::chrono::time_point<std::chrono::steady_clock>& max_blocking_time) = 0;
 
     bool is_datasharing_compatible_with(
             const ReaderProxyData& rdata) const;

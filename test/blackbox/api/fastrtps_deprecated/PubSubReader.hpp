@@ -977,6 +977,13 @@ public:
         return *this;
     }
 
+    PubSubReader& use_writer_liveliness_protocol(
+            bool use_wlp)
+    {
+        participant_attr_.rtps.builtin.use_WriterLivelinessProtocol = use_wlp;
+        return *this;
+    }
+
     PubSubReader& setSubscriberIDs(
             uint8_t UserID,
             uint8_t EntityID)
@@ -1016,6 +1023,13 @@ public:
             IPLocator::setIPv6(loopback_locator, "::1");
         }
         participant_attr_.rtps.builtin.initialPeersList.push_back(loopback_locator);
+        return *this;
+    }
+
+    PubSubReader& avoid_builtin_multicast(
+            bool value)
+    {
+        participant_attr_.rtps.builtin.avoid_builtin_multicast = value;
         return *this;
     }
 

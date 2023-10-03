@@ -1727,21 +1727,21 @@ public:
      * @brief Specifies the maximum number of data-samples the DataWriter (or DataReader) can manage across all the
      * instances associated with it. Represents the maximum samples the middleware can store for any one DataWriter
      * (or DataReader). <br>
-     * By default, 5000.
+     * Value 0 means infinite resources. By default, 5000.
      *
      * @warning It is inconsistent if `max_samples < (max_instances * max_samples_per_instance)`.
      */
     int32_t max_samples;
     /**
      * @brief Represents the maximum number of instances DataWriter (or DataReader) can manage. <br>
-     * By default, 10.
+     * Value 0 means infinite resources. By default, 10.
      *
      * @warning It is inconsistent if `(max_instances * max_samples_per_instance) > max_samples`.
      */
     int32_t max_instances;
     /**
      * @brief Represents the maximum number of samples of any one instance a DataWriter(or DataReader) can manage. <br>
-     * By default, 400.
+     * Value 0 means infinite resources. By default, 400.
      *
      * @warning It is inconsistent if `(max_instances * max_samples_per_instance) > max_samples`.
      */
@@ -2066,7 +2066,7 @@ public:
 };
 
 /**
- * Enum DataRepresentationId, different kinds of topic data representation
+ * Enum @ref DataRepresentationId, different kinds of topic data representation
  */
 typedef enum DataRepresentationId : int16_t
 {
@@ -2074,6 +2074,9 @@ typedef enum DataRepresentationId : int16_t
     XML_DATA_REPRESENTATION = 1,    //!< XML Data Representation (Unsupported)
     XCDR2_DATA_REPRESENTATION = 2    //!< Extended CDR Encoding version 2
 } DataRepresentationId_t;
+
+//! Default @ref DataRepresentationId used in Fast DDS.
+constexpr DataRepresentationId_t DEFAULT_DATA_REPRESENTATION {DataRepresentationId_t::XCDR_DATA_REPRESENTATION};
 
 /**
  * With multiple standard data Representations available, and vendor-specific extensions possible, DataWriters and
@@ -2089,7 +2092,7 @@ class DataRepresentationQosPolicy : public Parameter_t, public QosPolicy
 {
 public:
 
-    //!List of DataRepresentationId. <br> By default, empty list.
+    //!List of @ref DataRepresentationId. <br> By default, empty list.
     std::vector<DataRepresentationId_t> m_value;
 
     /**
@@ -2261,6 +2264,7 @@ public:
             const DisablePositiveACKsQosPolicy& b) const
     {
         return enabled == b.enabled &&
+               duration == b.duration &&
                Parameter_t::operator ==(b) &&
                QosPolicy::operator ==(b);
     }
@@ -2701,7 +2705,11 @@ public:
     //! Port Parameters
     fastrtps::rtps::PortParameters port;
 
-    //! Throughput controller parameters. Leave default for uncontrolled flow.
+    /**
+     * @brief Throughput controller parameters. Leave default for uncontrolled flow.
+     *
+     * @deprecated Use flow_controllers() on DomainParticipantQoS
+     */
     fastrtps::rtps::ThroughputControllerDescriptor throughput_controller;
 
     /**

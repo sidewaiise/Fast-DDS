@@ -20,39 +20,40 @@
 #ifndef _TEST_BLACKBOX_PUBSUBWRITER_HPP_
 #define _TEST_BLACKBOX_PUBSUBWRITER_HPP_
 
-#include <string>
+#include <condition_variable>
 #include <list>
 #include <map>
-#include <condition_variable>
+#include <string>
+#include <thread>
+#include <vector>
+
 #include <asio.hpp>
 #include <gtest/gtest.h>
-#include <thread>
 
 #if _MSC_VER
 #include <Windows.h>
 #endif // _MSC_VER
 
-#include <fastdds/dds/core/condition/StatusCondition.hpp>
 #include <fastdds/dds/core/condition/GuardCondition.hpp>
+#include <fastdds/dds/core/condition/StatusCondition.hpp>
 #include <fastdds/dds/core/condition/WaitSet.hpp>
-#include <fastdds/dds/domain/DomainParticipantFactory.hpp>
+#include <fastdds/dds/core/policy/QosPolicies.hpp>
 #include <fastdds/dds/domain/DomainParticipant.hpp>
+#include <fastdds/dds/domain/DomainParticipantFactory.hpp>
 #include <fastdds/dds/domain/DomainParticipantListener.hpp>
 #include <fastdds/dds/domain/qos/DomainParticipantQos.hpp>
-#include <fastdds/dds/topic/Topic.hpp>
-#include <fastdds/dds/publisher/Publisher.hpp>
 #include <fastdds/dds/publisher/DataWriter.hpp>
 #include <fastdds/dds/publisher/DataWriterListener.hpp>
+#include <fastdds/dds/publisher/Publisher.hpp>
 #include <fastdds/dds/publisher/qos/DataWriterQos.hpp>
-#include <fastdds/dds/core/policy/QosPolicies.hpp>
+#include <fastdds/dds/topic/Topic.hpp>
+#include <fastdds/rtps/flowcontrol/FlowControllerSchedulerPolicy.hpp>
 #include <fastdds/rtps/transport/UDPTransportDescriptor.h>
 #include <fastdds/rtps/transport/UDPv4TransportDescriptor.h>
 #include <fastdds/rtps/transport/UDPv6TransportDescriptor.h>
+#include <fastrtps/utils/IPLocator.h>
 #include <fastrtps/xmlparser/XMLParser.h>
 #include <fastrtps/xmlparser/XMLTree.h>
-#include <fastrtps/utils/IPLocator.h>
-#include <fastdds/rtps/flowcontrol/FlowControllerSchedulerPolicy.hpp>
-
 
 using DomainParticipantFactory = eprosima::fastdds::dds::DomainParticipantFactory;
 using eprosima::fastrtps::rtps::IPLocator;
@@ -170,6 +171,7 @@ class PubSubWriter
             : writer_(writer)
             , times_deadline_missed_(0)
             , times_liveliness_lost_(0)
+            , times_unack_sample_removed_(0)
         {
         }
 
@@ -197,7 +199,7 @@ class PubSubWriter
                 eprosima::fastdds::dds::DataWriter* datawriter,
                 const eprosima::fastrtps::OfferedDeadlineMissedStatus& status) override
         {
-            (void)datawriter;
+            static_cast<void>(datawriter);
             times_deadline_missed_ = status.total_count;
         }
 
@@ -205,7 +207,7 @@ class PubSubWriter
                 eprosima::fastdds::dds::DataWriter* datawriter,
                 const eprosima::fastdds::dds::OfferedIncompatibleQosStatus& status) override
         {
-            (void)datawriter;
+            static_cast<void>(datawriter);
             writer_.incompatible_qos(status);
         }
 
@@ -213,9 +215,18 @@ class PubSubWriter
                 eprosima::fastdds::dds::DataWriter* datawriter,
                 const eprosima::fastrtps::LivelinessLostStatus& status) override
         {
-            (void)datawriter;
+            static_cast<void>(datawriter);
             times_liveliness_lost_ = status.total_count;
             writer_.liveliness_lost();
+        }
+
+        void on_unacknowledged_sample_removed(
+                eprosima::fastdds::dds::DataWriter* datawriter,
+                const eprosima::fastdds::dds::InstanceHandle_t& handle) override
+        {
+            EXPECT_EQ(writer_.datawriter_, datawriter);
+            times_unack_sample_removed_++;
+            instances_removed_unack_.push_back(handle);
         }
 
         unsigned int missed_deadlines() const
@@ -226,6 +237,16 @@ class PubSubWriter
         unsigned int times_liveliness_lost() const
         {
             return times_liveliness_lost_;
+        }
+
+        unsigned int times_unack_sample_removed() const
+        {
+            return times_unack_sample_removed_;
+        }
+
+        std::vector<eprosima::fastdds::dds::InstanceHandle_t>& instances_removed_unack()
+        {
+            return instances_removed_unack_;
         }
 
     private:
@@ -239,6 +260,10 @@ class PubSubWriter
         unsigned int times_deadline_missed_;
         //! The number of times liveliness was lost
         unsigned int times_liveliness_lost_;
+        //! The number of times a sample has been removed unacknowledged
+        unsigned int times_unack_sample_removed_;
+        //! Instance handle collection of those instances that have removed samples unacknowledged
+        std::vector<eprosima::fastdds::dds::InstanceHandle_t> instances_removed_unack_;
 
     }
     listener_;
@@ -507,6 +532,7 @@ public:
     bool send_sample(
             type& msg)
     {
+        default_send_print(msg);
         return datawriter_->write((void*)&msg);
     }
 
@@ -617,6 +643,35 @@ public:
                 });
 
         std::cout << "Writer removal finished..." << std::endl;
+    }
+
+    bool wait_reader_undiscovery(
+            std::chrono::seconds timeout,
+            unsigned int matched = 0)
+    {
+        bool ret_value = true;
+        std::unique_lock<std::mutex> lock(mutexDiscovery_);
+
+        std::cout << "Writer is waiting removal..." << std::endl;
+
+        if (!cv_.wait_for(lock, timeout, [&]()
+                {
+                    return matched_ <= matched;
+                }))
+        {
+            ret_value = false;
+        }
+
+        if (ret_value)
+        {
+            std::cout << "Writer removal finished successfully..." << std::endl;
+        }
+        else
+        {
+            std::cout << "Writer removal finished unsuccessfully..." << std::endl;
+        }
+
+        return ret_value;
     }
 
     void wait_liveliness_lost(
@@ -897,6 +952,13 @@ public:
         return *this;
     }
 
+    PubSubWriter& set_wire_protocol_qos(
+            const eprosima::fastdds::dds::WireProtocolConfigQos& qos)
+    {
+        participant_qos_.wire_protocol() = qos;
+        return *this;
+    }
+
     PubSubWriter& add_user_transport_to_pparams(
             std::shared_ptr<eprosima::fastdds::rtps::TransportDescriptorInterface> userTransportDescriptor)
     {
@@ -1153,6 +1215,13 @@ public:
         return *this;
     }
 
+    PubSubWriter& avoid_builtin_multicast(
+            bool value)
+    {
+        participant_qos_.wire_protocol().builtin.avoid_builtin_multicast = value;
+        return *this;
+    }
+
     PubSubWriter& property_policy(
             const eprosima::fastrtps::rtps::PropertyPolicy& property_policy)
     {
@@ -1247,6 +1316,13 @@ public:
             uint32_t max_partitions)
     {
         participant_qos_.allocation().data_limits.max_partitions = max_partitions;
+        return *this;
+    }
+
+    PubSubWriter& max_multicast_locators_number(
+            size_t max_multicast_locators)
+    {
+        participant_qos_.allocation().locators.max_multicast_locators = max_multicast_locators;
         return *this;
     }
 
@@ -1394,6 +1470,17 @@ public:
         return (ReturnCode_t::RETCODE_OK == datawriter_->set_qos(datawriter_qos_));
     }
 
+    bool set_qos(
+            const eprosima::fastdds::dds::DataWriterQos& att)
+    {
+        return (ReturnCode_t::RETCODE_OK == datawriter_->set_qos(att));
+    }
+
+    eprosima::fastdds::dds::DataWriterQos get_qos()
+    {
+        return (datawriter_->get_qos());
+    }
+
     bool remove_all_changes(
             size_t* number_of_changes_removed)
     {
@@ -1418,6 +1505,16 @@ public:
     unsigned int times_liveliness_lost() const
     {
         return listener_.times_liveliness_lost();
+    }
+
+    unsigned int times_unack_sample_removed() const
+    {
+        return listener_.times_unack_sample_removed();
+    }
+
+    std::vector<eprosima::fastdds::dds::InstanceHandle_t>& instances_removed_unack()
+    {
+        return listener_.instances_removed_unack();
     }
 
     unsigned int times_incompatible_qos() const
@@ -1481,6 +1578,13 @@ public:
     }
 
 #endif // if HAVE_SQLITE3
+
+    PubSubWriter& use_writer_liveliness_protocol(
+            bool use_wlp)
+    {
+        participant_qos_.wire_protocol().builtin.use_WriterLivelinessProtocol = use_wlp;
+        return *this;
+    }
 
 protected:
 

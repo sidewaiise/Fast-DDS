@@ -30,6 +30,7 @@
 
 #include <rtps/builtin/discovery/database/DiscoveryParticipantChangeData.hpp>
 #include <rtps/builtin/discovery/participant/PDPServer.hpp>
+#include <rtps/builtin/discovery/participant/DS/DiscoveryServerPDPEndpoints.hpp>
 #include <rtps/network/ExternalLocatorsProcessor.hpp>
 #include <rtps/participant/RTPSParticipantImpl.h>
 
@@ -61,10 +62,11 @@ void PDPServerListener::onNewCacheChangeAdded(
             " --------------------");
     EPROSIMA_LOG_INFO(RTPS_PDP_LISTENER, "PDP Server Message received: " << change_in->instanceHandle);
 
+    auto endpoints = static_cast<fastdds::rtps::DiscoveryServerPDPEndpoints*>(pdp_server()->builtin_endpoints_.get());
     // Get PDP reader history
-    auto pdp_history = pdp_server()->mp_PDPReaderHistory;
+    auto pdp_history = endpoints->reader.history_.get();
     // Get PDP reader to release change
-    auto pdp_reader = pdp_server()->mp_PDPReader;
+    auto pdp_reader = endpoints->reader.reader_;
 
     bool routine_should_be_awake = false;
 
@@ -140,6 +142,11 @@ void PDPServerListener::onNewCacheChangeAdded(
                     pdp_server()->getRTPSParticipant()->network_factory(),
                     pdp_server()->getRTPSParticipant()->has_shm_transport()))
         {
+            if (parent_pdp_->getRTPSParticipant()->is_participant_ignored(participant_data.m_guid.guidPrefix))
+            {
+                return;
+            }
+
             const auto& pattr = pdp_server()->getRTPSParticipant()->getAttributes();
             fastdds::rtps::ExternalLocatorsProcessor::filter_remote_locators(participant_data,
                     pattr.builtin.metatraffic_external_unicast_locators, pattr.default_external_unicast_locators,
@@ -350,7 +357,7 @@ void PDPServerListener::onNewCacheChangeAdded(
                 // Included form symmetry with PDPListener to profit from a future updateInfoMatchesEDP override
                 if (pdp_server()->updateInfoMatchesEDP() && is_local)
                 {
-                    pdp_server()->mp_EDP->assignRemoteEndpoints(*pdata);
+                    pdp_server()->mp_EDP->assignRemoteEndpoints(*pdata, true);
                 }
             }
 
@@ -361,13 +368,20 @@ void PDPServerListener::onNewCacheChangeAdded(
                 RTPSParticipantListener* listener = pdp_server()->getRTPSParticipant()->getListener();
                 if (listener != nullptr)
                 {
-                    std::lock_guard<std::mutex> cb_lock(pdp_server()->callback_mtx_);
-                    ParticipantDiscoveryInfo info(*pdata);
-                    info.status = status;
+                    bool should_be_ignored = false;
+                    {
+                        std::lock_guard<std::mutex> cb_lock(pdp_server()->callback_mtx_);
+                        ParticipantDiscoveryInfo info(*pdata);
+                        info.status = status;
 
-                    listener->onParticipantDiscovery(
-                        pdp_server()->getRTPSParticipant()->getUserRTPSParticipant(),
-                        std::move(info));
+                        listener->onParticipantDiscovery(
+                            pdp_server()->getRTPSParticipant()->getUserRTPSParticipant(),
+                            std::move(info), should_be_ignored);
+                    }
+                    if (should_be_ignored)
+                    {
+                        parent_pdp_->getRTPSParticipant()->ignore_participant(guid.guidPrefix);
+                    }
                 }
             }
 

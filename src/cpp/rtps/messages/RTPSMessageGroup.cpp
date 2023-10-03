@@ -173,9 +173,11 @@ const EntityId_t& get_entity_id(
 
 RTPSMessageGroup::RTPSMessageGroup(
         RTPSParticipantImpl* participant,
-        bool internal_buffer)
+        bool internal_buffer,
+        std::chrono::steady_clock::time_point max_blocking_time_point)
     : participant_(participant)
-    , send_buffer_(!internal_buffer ? participant->get_send_buffer() : nullptr)
+    , max_blocking_time_point_(max_blocking_time_point)
+    , send_buffer_(!internal_buffer ? participant->get_send_buffer(max_blocking_time_point) : nullptr)
     , internal_buffer_(internal_buffer)
 {
     // Avoid warning when neither SECURITY nor DEBUG is used
@@ -220,14 +222,12 @@ RTPSMessageGroup::RTPSMessageGroup(
         Endpoint* endpoint,
         RTPSMessageSenderInterface* msg_sender,
         std::chrono::steady_clock::time_point max_blocking_time_point)
-    : RTPSMessageGroup(participant)
+    : RTPSMessageGroup(participant, false, max_blocking_time_point)
 {
     assert(endpoint);
 
     endpoint_ = endpoint;
     sender_ = msg_sender;
-    max_blocking_time_point_ = max_blocking_time_point;
-    max_blocking_time_is_set_ = true;
 }
 
 RTPSMessageGroup::~RTPSMessageGroup() noexcept(false)
@@ -300,8 +300,7 @@ void RTPSMessageGroup::send()
             eprosima::fastdds::statistics::rtps::add_statistics_submessage(msgToSend);
 
             if (!sender_->send(msgToSend,
-                    max_blocking_time_is_set_ ? max_blocking_time_point_ : (std::chrono::steady_clock::now() +
-                    std::chrono::hours(24))))
+                    max_blocking_time_point_))
             {
                 throw timeout();
             }
@@ -461,6 +460,7 @@ bool RTPSMessageGroup::add_data(
     change_to_add.copy_not_memcpy(&change);
     change_to_add.serializedPayload.data = change.serializedPayload.data;
     change_to_add.serializedPayload.length = change.serializedPayload.length;
+    change_to_add.writerGUID = endpoint_->getGuid();
 
 #if HAVE_SECURITY
     if (endpoint_->getAttributes().security_attributes().is_payload_protected)
@@ -564,6 +564,7 @@ bool RTPSMessageGroup::add_data_frag(
     change_to_add.copy_not_memcpy(&change);
     change_to_add.serializedPayload.data = change.serializedPayload.data + fragment_start;
     change_to_add.serializedPayload.length = fragment_size;
+    change_to_add.writerGUID = endpoint_->getGuid();
 
 #if HAVE_SECURITY
     if (endpoint_->getAttributes().security_attributes().is_payload_protected)

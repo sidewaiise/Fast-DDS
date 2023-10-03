@@ -19,6 +19,7 @@
 
 #include <fastdds/dds/builtin/typelookup/TypeLookupManager.hpp>
 
+#include <fastcdr/CdrSizeCalculator.hpp>
 #include <fastdds/rtps/builtin/BuiltinProtocols.h>
 #include <fastdds/rtps/builtin/data/ParticipantProxyData.h>
 #include <fastdds/rtps/builtin/data/WriterProxyData.h>
@@ -150,7 +151,6 @@ bool TypeLookupManager::assign_remote_endpoints(
 {
     const NetworkFactory& network = participant_->network_factory();
     uint32_t endp = pdata.m_availableBuiltinEndpoints;
-    uint32_t partdet = endp;
     uint32_t auxendp = endp;
 
     std::lock_guard<std::mutex> data_guard(temp_data_lock_);
@@ -172,10 +172,9 @@ bool TypeLookupManager::assign_remote_endpoints(
 
     EPROSIMA_LOG_INFO(TYPELOOKUP_SERVICE, "for RTPSParticipant: " << pdata.m_guid);
 
-    partdet &= DISC_BUILTIN_ENDPOINT_PARTICIPANT_DETECTOR; //Habria que quitar esta linea que comprueba si tiene PDP.
     auxendp &= BUILTIN_ENDPOINT_TYPELOOKUP_SERVICE_REQUEST_DATA_WRITER;
 
-    if ((auxendp != 0 || partdet != 0) && builtin_request_reader_ != nullptr)
+    if (auxendp != 0 && builtin_request_reader_ != nullptr)
     {
         EPROSIMA_LOG_INFO(TYPELOOKUP_SERVICE, "Adding remote writer to the local Builtin Request Reader");
         temp_writer_proxy_data_.guid().entityId = fastrtps::rtps::c_EntityId_TypeLookup_request_writer;
@@ -186,7 +185,7 @@ bool TypeLookupManager::assign_remote_endpoints(
     auxendp = endp;
     auxendp &= BUILTIN_ENDPOINT_TYPELOOKUP_SERVICE_REPLY_DATA_WRITER;
 
-    if ((auxendp != 0 || partdet != 0) && builtin_reply_reader_ != nullptr)
+    if (auxendp != 0 && builtin_reply_reader_ != nullptr)
     {
         EPROSIMA_LOG_INFO(TYPELOOKUP_SERVICE, "Adding remote writer to the local Builtin Reply Reader");
         temp_writer_proxy_data_.guid().entityId = fastrtps::rtps::c_EntityId_TypeLookup_reply_writer;
@@ -197,7 +196,7 @@ bool TypeLookupManager::assign_remote_endpoints(
     auxendp = endp;
     auxendp &= BUILTIN_ENDPOINT_TYPELOOKUP_SERVICE_REQUEST_DATA_READER;
 
-    if ((auxendp != 0 || partdet != 0) && builtin_request_writer_ != nullptr)
+    if (auxendp != 0 && builtin_request_writer_ != nullptr)
     {
         EPROSIMA_LOG_INFO(TYPELOOKUP_SERVICE, "Adding remote reader to the local Builtin Request Writer");
         temp_reader_proxy_data_.guid().entityId = fastrtps::rtps::c_EntityId_TypeLookup_request_reader;
@@ -207,7 +206,7 @@ bool TypeLookupManager::assign_remote_endpoints(
     auxendp = endp;
     auxendp &= BUILTIN_ENDPOINT_TYPELOOKUP_SERVICE_REPLY_DATA_READER;
 
-    if ((auxendp != 0 || partdet != 0) && builtin_reply_writer_ != nullptr)
+    if (auxendp != 0 && builtin_reply_writer_ != nullptr)
     {
         EPROSIMA_LOG_INFO(TYPELOOKUP_SERVICE, "Adding remote reader to the local Builtin Reply Writer");
         temp_reader_proxy_data_.guid().entityId = fastrtps::rtps::c_EntityId_TypeLookup_reply_reader;
@@ -546,7 +545,9 @@ bool TypeLookupManager::send_request(
     CacheChange_t* change = builtin_request_writer_->new_change(
         [&req]()
         {
-            return static_cast<uint32_t>(TypeLookup_Request::getCdrSerializedSize(req) + 4);
+            eprosima::fastcdr::CdrSizeCalculator calculator(eprosima::fastcdr::CdrVersion::XCDRv1);
+            size_t current_alignment {0};
+            return static_cast<uint32_t>(calculator.calculate_serialized_size(req, current_alignment) + 4);
         },
         ALIVE);
 
@@ -566,7 +567,7 @@ bool TypeLookupManager::send_request(
         SerializedPayload_t payload;
         payload.max_size = change->serializedPayload.max_size - 4;
         payload.data = change->serializedPayload.data + 4;
-        if (valid && request_type_.serialize(&req, &payload))
+        if (valid && request_type_.serialize(&req, &payload, DataRepresentationId_t::XCDR2_DATA_REPRESENTATION))
         {
             change->serializedPayload.length += payload.length;
             change->serializedPayload.pos += payload.pos;
@@ -587,7 +588,9 @@ bool TypeLookupManager::send_reply(
     CacheChange_t* change = builtin_reply_writer_->new_change(
         [&rep]()
         {
-            return static_cast<uint32_t>(TypeLookup_Reply::getCdrSerializedSize(rep) + 4);
+            eprosima::fastcdr::CdrSizeCalculator calculator(eprosima::fastcdr::CdrVersion::XCDRv1);
+            size_t current_alignment {0};
+            return static_cast<uint32_t>(calculator.calculate_serialized_size(rep, current_alignment) + 4);
         },
         ALIVE);
 
@@ -607,7 +610,7 @@ bool TypeLookupManager::send_reply(
         SerializedPayload_t payload;
         payload.max_size = change->serializedPayload.max_size - 4;
         payload.data = change->serializedPayload.data + 4;
-        if (valid && reply_type_.serialize(&rep, &payload))
+        if (valid && reply_type_.serialize(&rep, &payload, DataRepresentationId_t::XCDR2_DATA_REPRESENTATION))
         {
             change->serializedPayload.length += payload.length;
             change->serializedPayload.pos += payload.pos;

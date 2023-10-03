@@ -24,17 +24,15 @@
 #include <mutex>
 
 #include <fastdds/dds/log/Log.hpp>
-
 #include <fastdds/rtps/attributes/HistoryAttributes.h>
 #include <fastdds/rtps/builtin/data/ParticipantProxyData.h>
 #include <fastdds/rtps/builtin/data/ReaderProxyData.h>
 #include <fastdds/rtps/builtin/data/WriterProxyData.h>
 #include <fastdds/rtps/builtin/discovery/endpoint/EDP.h>
-#include <fastdds/rtps/builtin/discovery/participant/PDPSimple.h>
+#include <fastdds/rtps/builtin/discovery/participant/PDP.h>
 #include <fastdds/rtps/history/ReaderHistory.h>
 #include <fastdds/rtps/history/WriterHistory.h>
 #include <fastdds/rtps/messages/CDRMessage.h>
-#include <fastdds/rtps/network/NetworkFactory.h>
 #include <fastdds/rtps/participant/RTPSParticipantListener.h>
 #include <fastdds/rtps/reader/StatefulReader.h>
 #include <fastdds/rtps/reader/StatelessReader.h>
@@ -47,6 +45,7 @@
 #include <fastdds/rtps/writer/StatelessWriter.h>
 
 #include <rtps/history/TopicPayloadPoolRegistry.hpp>
+#include <rtps/network/NetworkFactory.h>
 #include <rtps/participant/RTPSParticipantImpl.h>
 #include <security/OpenSSLInit.hpp>
 
@@ -96,24 +95,15 @@ SecurityManager::SecurityManager(
     , local_permissions_handle_(nullptr)
     , auth_last_sequence_number_(1)
     , crypto_last_sequence_number_(1)
-    , temp_stateless_reader_proxy_data_(
-        participant->getRTPSParticipantAttributes().allocation.locators.max_unicast_locators,
-        participant->getRTPSParticipantAttributes().allocation.locators.max_multicast_locators,
-        participant->getRTPSParticipantAttributes().allocation.data_limits,
-        participant->getRTPSParticipantAttributes().allocation.content_filter)
-    , temp_stateless_writer_proxy_data_(
-        participant->getRTPSParticipantAttributes().allocation.locators.max_unicast_locators,
-        participant->getRTPSParticipantAttributes().allocation.locators.max_multicast_locators,
-        participant->getRTPSParticipantAttributes().allocation.data_limits)
-    , temp_volatile_reader_proxy_data_(
-        participant->getRTPSParticipantAttributes().allocation.locators.max_unicast_locators,
-        participant->getRTPSParticipantAttributes().allocation.locators.max_multicast_locators,
-        participant->getRTPSParticipantAttributes().allocation.data_limits,
-        participant->getRTPSParticipantAttributes().allocation.content_filter)
-    , temp_volatile_writer_proxy_data_(
-        participant->getRTPSParticipantAttributes().allocation.locators.max_unicast_locators,
-        participant->getRTPSParticipantAttributes().allocation.locators.max_multicast_locators,
-        participant->getRTPSParticipantAttributes().allocation.data_limits)
+    , temp_reader_proxies_({
+    participant->getRTPSParticipantAttributes().allocation.locators.max_unicast_locators,
+    participant->getRTPSParticipantAttributes().allocation.locators.max_multicast_locators,
+    participant->getRTPSParticipantAttributes().allocation.data_limits,
+    participant->getRTPSParticipantAttributes().allocation.content_filter})
+    , temp_writer_proxies_({
+    participant->getRTPSParticipantAttributes().allocation.locators.max_unicast_locators,
+    participant->getRTPSParticipantAttributes().allocation.locators.max_multicast_locators,
+    participant->getRTPSParticipantAttributes().allocation.data_limits})
 {
     assert(participant != nullptr);
     static OpenSSLInit openssl_init;
@@ -201,6 +191,20 @@ bool SecurityManager::init(
                 EPROSIMA_LOG_INFO(SECURITY, "Could not create logging plugin. Security logging will be disabled.");
             }
         }
+
+        const auto log_info_message = [this](const char* msg)
+                {
+                    if (logging_plugin_)
+                    {
+                        SecurityException logging_exception;
+                        logging_plugin_->log(LoggingLevel::INFORMATIONAL_LEVEL, msg, "SecurityManager,init",
+                                logging_exception);
+                    }
+                    else
+                    {
+                        EPROSIMA_LOG_INFO(SECURITY, msg);
+                    }
+                };
 
         authentication_plugin_ = factory_.create_authentication_plugin(participant_properties);
 
@@ -293,20 +297,14 @@ bool SecurityManager::init(
                             local_permissions_handle_ = nullptr;
                         }
                     }
-                }
-
-                if (access_plugin_ == nullptr)
-                {
-                    // Read participant properties.
-                    const std::string* property_value = PropertyPolicyHelper::find_property(participant_properties,
-                                    "rtps.participant.rtps_protection_kind");
-                    if (property_value != nullptr && property_value->compare("ENCRYPT") == 0)
+                    else
                     {
-                        attributes.is_rtps_protected = true;
-                        attributes.plugin_participant_attributes |=
-                                PLUGIN_PARTICIPANT_SECURITY_ATTRIBUTES_FLAG_IS_VALID |
-                                PLUGIN_PARTICIPANT_SECURITY_ATTRIBUTES_FLAG_IS_RTPS_ENCRYPTED;
+                        log_info_message(exception.what());
                     }
+                }
+                else
+                {
+                    log_info_message("Access control plugin not configured");
                 }
 
                 if (access_plugin_ == nullptr || local_permissions_handle_ != nullptr)
@@ -329,22 +327,19 @@ bool SecurityManager::init(
                         {
                             assert(!local_participant_crypto_handle_->nil());
                         }
+                        else
+                        {
+                            log_info_message(exception.what());
+                        }
                     }
                     else
                     {
-                        if (logging_plugin_)
-                        {
-                            SecurityException logging_exception;
-                            logging_plugin_->log(LoggingLevel::INFORMATIONAL_LEVEL,
-                                    "Cryptography plugin not configured",
-                                    "SecurityManager,init",
-                                    logging_exception);
-                        }
-                        else
-                        {
-                            EPROSIMA_LOG_INFO(SECURITY, "Cryptography plugin not configured.");
-                        }
+                        log_info_message(exception.what());
                     }
+                }
+                else
+                {
+                    log_info_message("Cryptography plugin not configured");
                 }
 
                 if ((access_plugin_ == nullptr || local_permissions_handle_ != nullptr) &&
@@ -353,24 +348,29 @@ bool SecurityManager::init(
                     // Should be activated here, to enable encription buffer on created entities
                     throw true;
                 }
+                else
+                {
+                    if (access_plugin_ != nullptr && local_permissions_handle_ == nullptr)
+                    {
+                        EPROSIMA_LOG_ERROR(SECURITY, "Participant is not allowed with its own permissions file.");
+                    }
+
+                    if (crypto_plugin_ != nullptr && local_participant_crypto_handle_ == nullptr)
+                    {
+                        EPROSIMA_LOG_ERROR(SECURITY, "Participant cryptography could not be configured.");
+                    }
+                }
             }
 
+            // NOTE: This makes Participant creation fails, in some occasions without any info of what happened.
+            // However, it has been decided to leave it this way.
+            // For future developers struggling with security debugging issues, remember that the exception variable
+            // at this point has relevant information.
             throw false;
         }
         else
         {
-            if (logging_plugin_)
-            {
-                SecurityException logging_exception;
-                logging_plugin_->log(LoggingLevel::INFORMATIONAL_LEVEL,
-                        "Authentication plugin not configured. Security will be disable",
-                        "SecurityManager,init",
-                        logging_exception);
-            }
-            else
-            {
-                EPROSIMA_LOG_INFO(SECURITY, "Authentication plugin not configured. Security will be disable");
-            }
+            log_info_message("Authentication plugin not configured. Security will be disabled");
         }
     }
     catch (const SecurityException& e)
@@ -412,12 +412,25 @@ void SecurityManager::cancel_init()
 
     if (access_plugin_ != nullptr)
     {
+        if (local_permissions_handle_ != nullptr)
+        {
+            access_plugin_->return_permissions_handle(local_permissions_handle_, exception);
+        }
+
         delete access_plugin_;
         access_plugin_ = nullptr;
     }
 
-    delete authentication_plugin_;
-    authentication_plugin_ = nullptr;
+    if (authentication_plugin_ != nullptr)
+    {
+        if (local_identity_handle_ != nullptr)
+        {
+            authentication_plugin_->return_identity_handle(local_identity_handle_, exception);
+        }
+
+        delete authentication_plugin_;
+        authentication_plugin_ = nullptr;
+    }
 
     disable_security_manager();
 }
@@ -578,7 +591,7 @@ bool SecurityManager::discovered_participant(
 
     if (authentication_plugin_ == nullptr)
     {
-        participant_->pdpsimple()->notifyAboveRemoteEndpoints(participant_data);
+        participant_->pdp()->notifyAboveRemoteEndpoints(participant_data, true);
         return true;
     }
 
@@ -603,6 +616,7 @@ bool SecurityManager::discovered_participant(
         remote_participant_info = map_ret.first->second->get_auth();
     }
 
+    bool notify_part_authorized = false;
     if (undiscovered && remote_participant_info)
     {
         // Configure the timed event but do not start it
@@ -613,7 +627,7 @@ bool SecurityManager::discovered_participant(
                     resend_handshake_message_token(guid);
                     return true;
                 },
-                500)); // TODO (Ricardo) Configurable
+                DiscoveredParticipantInfo::INITIAL_RESEND_HANDSHAKE_MILLISECS)); // TODO (Ricardo) Configurable
 
         IdentityHandle* remote_identity_handle = nullptr;
 
@@ -640,23 +654,8 @@ bool SecurityManager::discovered_participant(
             case VALIDATION_PENDING_RETRY:
             // TODO(Ricardo) Send event.
             default:
-                if (strlen(exception.what()) > 0)
-                {
-                    EPROSIMA_LOG_ERROR(SECURITY_AUTHENTICATION, exception.what());
-                }
 
-                EPROSIMA_LOG_INFO(SECURITY, "Authentication failed for participant " <<
-                        participant_data.m_guid);
-
-                // Inform user about authenticated remote participant.
-                if (participant_->getListener() != nullptr)
-                {
-                    ParticipantAuthenticationInfo info;
-                    info.status = ParticipantAuthenticationInfo::UNAUTHORIZED_PARTICIPANT;
-                    info.guid = participant_data.m_guid;
-                    participant_->getListener()->onParticipantAuthentication(
-                        participant_->getUserRTPSParticipant(), std::move(info));
-                }
+                on_validation_failed(participant_data, exception);
 
                 std::lock_guard<shared_mutex> _(mutex_);
 
@@ -682,7 +681,7 @@ bool SecurityManager::discovered_participant(
         {
             //TODO(Ricardo) Shared secret on this case?
             std::shared_ptr<SecretHandle> ss;
-            participant_authorized(participant_data, remote_participant_info, ss);
+            notify_part_authorized = participant_authorized(participant_data, remote_participant_info, ss);
         }
     }
     else
@@ -701,10 +700,15 @@ bool SecurityManager::discovered_participant(
     {
         // Maybe send request.
         returnedValue = on_process_handshake(participant_data, remote_participant_info,
-                        MessageIdentity(), HandshakeMessageToken());
+                        MessageIdentity(), HandshakeMessageToken(), notify_part_authorized);
     }
 
     restore_discovered_participant_info(participant_data.m_guid, remote_participant_info);
+
+    if (notify_part_authorized)
+    {
+        notify_participant_authorized(participant_data);
+    }
 
     return returnedValue;
 }
@@ -800,7 +804,8 @@ bool SecurityManager::on_process_handshake(
         const ParticipantProxyData& participant_data,
         DiscoveredParticipantInfo::AuthUniquePtr& remote_participant_info,
         MessageIdentity&& message_identity,
-        HandshakeMessageToken&& message_in)
+        HandshakeMessageToken&& message_in,
+        bool& notify_part_authorized)
 {
     auto sentry = is_security_manager_initialized();
     if (!sentry)
@@ -823,7 +828,7 @@ bool SecurityManager::on_process_handshake(
                         &handshake_message,
                         *local_identity_handle_,
                         *remote_participant_info->identity_handle_,
-                        participant_->pdpsimple()->get_participant_proxy_data_serialized(BIGEND),
+                        participant_->pdp()->get_participant_proxy_data_serialized(BIGEND),
                         exception);
     }
     else if (remote_participant_info->auth_status_ == AUTHENTICATION_WAITING_REQUEST)
@@ -834,7 +839,7 @@ bool SecurityManager::on_process_handshake(
                         std::move(message_in),
                         *remote_participant_info->identity_handle_,
                         *local_identity_handle_,
-                        participant_->pdpsimple()->get_participant_proxy_data_serialized(BIGEND),
+                        participant_->pdp()->get_participant_proxy_data_serialized(BIGEND),
                         exception);
     }
     else if (remote_participant_info->auth_status_ == AUTHENTICATION_WAITING_REPLY ||
@@ -853,21 +858,7 @@ bool SecurityManager::on_process_handshake(
 
     if (ret == VALIDATION_FAILED)
     {
-        // Inform user about authenticated remote participant.
-        if (participant_->getListener() != nullptr)
-        {
-            ParticipantAuthenticationInfo info;
-            info.status = ParticipantAuthenticationInfo::UNAUTHORIZED_PARTICIPANT;
-            info.guid = participant_data.m_guid;
-            participant_->getListener()->onParticipantAuthentication(
-                participant_->getUserRTPSParticipant(), std::move(info));
-        }
-
-        if (strlen(exception.what()) > 0)
-        {
-            EPROSIMA_LOG_ERROR(SECURITY_AUTHENTICATION, exception.what());
-        }
-
+        on_validation_failed(participant_data, exception);
         return false;
     }
 
@@ -983,6 +974,10 @@ bool SecurityManager::on_process_handshake(
                             shared_secret_handle))
                     {
                         authentication_plugin_->return_sharedsecret_handle(shared_secret_handle, exception);
+                    }
+                    else
+                    {
+                        notify_part_authorized = true;
                     }
 
                 }
@@ -1620,10 +1615,17 @@ void SecurityManager::process_participant_stateless_message(
                 return;
             }
 
+            bool notify_part_authorized = false;
             on_process_handshake(*participant_data, remote_participant_info,
-                    std::move(message.message_identity()), std::move(message.message_data().at(0)));
+                    std::move(message.message_identity()),
+                    std::move(message.message_data().at(0)), notify_part_authorized);
 
             restore_discovered_participant_info(remote_participant_key, remote_participant_info);
+
+            if (notify_part_authorized)
+            {
+                notify_participant_authorized(*participant_data);
+            }
         }
         else
         {
@@ -2047,6 +2049,23 @@ uint32_t SecurityManager::builtin_endpoints() const
     return be;
 }
 
+bool SecurityManager::check_guid_comes_from(
+        const GUID_t& adjusted,
+        const GUID_t& original) const
+{
+    bool ret = (original == adjusted);
+    if (!ret && authentication_plugin_ != nullptr)
+    {
+        shared_lock<shared_mutex> _(mutex_);
+        auto part_it = discovered_participants_.find(adjusted);
+        if (part_it != discovered_participants_.end())
+        {
+            ret = part_it->second->check_guid_comes_from(authentication_plugin_, adjusted, original);
+        }
+    }
+    return ret;
+}
+
 void SecurityManager::match_builtin_endpoints(
         const ParticipantProxyData& participant_data)
 {
@@ -2056,29 +2075,34 @@ void SecurityManager::match_builtin_endpoints(
     if (participant_stateless_message_reader_ != nullptr &&
             builtin_endpoints & BUILTIN_ENDPOINT_PARTICIPANT_STATELESS_MESSAGE_WRITER)
     {
-        temp_stateless_writer_proxy_data_.clear();
-        temp_stateless_writer_proxy_data_.guid().guidPrefix = participant_data.m_guid.guidPrefix;
-        temp_stateless_writer_proxy_data_.guid().entityId = participant_stateless_message_writer_entity_id;
-        temp_stateless_writer_proxy_data_.persistence_guid(temp_stateless_writer_proxy_data_.guid());
-        temp_stateless_writer_proxy_data_.set_remote_locators(participant_data.metatraffic_locators, network, false);
-        temp_stateless_writer_proxy_data_.topicKind(NO_KEY);
-        temp_stateless_writer_proxy_data_.m_qos.m_reliability.kind = BEST_EFFORT_RELIABILITY_QOS;
-        temp_stateless_writer_proxy_data_.m_qos.m_durability.kind = VOLATILE_DURABILITY_QOS;
-        participant_stateless_message_reader_->matched_writer_add(temp_stateless_writer_proxy_data_);
+
+        auto temp_stateless_writer_proxy_data_ = get_temporary_writer_proxies_pool().get();
+
+        temp_stateless_writer_proxy_data_->clear();
+        temp_stateless_writer_proxy_data_->guid().guidPrefix = participant_data.m_guid.guidPrefix;
+        temp_stateless_writer_proxy_data_->guid().entityId = participant_stateless_message_writer_entity_id;
+        temp_stateless_writer_proxy_data_->persistence_guid(temp_stateless_writer_proxy_data_->guid());
+        temp_stateless_writer_proxy_data_->set_remote_locators(participant_data.metatraffic_locators, network, false);
+        temp_stateless_writer_proxy_data_->topicKind(NO_KEY);
+        temp_stateless_writer_proxy_data_->m_qos.m_reliability.kind = BEST_EFFORT_RELIABILITY_QOS;
+        temp_stateless_writer_proxy_data_->m_qos.m_durability.kind = VOLATILE_DURABILITY_QOS;
+        participant_stateless_message_reader_->matched_writer_add(*temp_stateless_writer_proxy_data_);
     }
 
     if (participant_stateless_message_writer_ != nullptr &&
             builtin_endpoints & BUILTIN_ENDPOINT_PARTICIPANT_STATELESS_MESSAGE_READER)
     {
-        temp_stateless_reader_proxy_data_.clear();
-        temp_stateless_reader_proxy_data_.m_expectsInlineQos = false;
-        temp_stateless_reader_proxy_data_.guid().guidPrefix = participant_data.m_guid.guidPrefix;
-        temp_stateless_reader_proxy_data_.guid().entityId = participant_stateless_message_reader_entity_id;
-        temp_stateless_reader_proxy_data_.set_remote_locators(participant_data.metatraffic_locators, network, false);
-        temp_stateless_reader_proxy_data_.topicKind(NO_KEY);
-        temp_stateless_reader_proxy_data_.m_qos.m_reliability.kind = BEST_EFFORT_RELIABILITY_QOS;
-        temp_stateless_reader_proxy_data_.m_qos.m_durability.kind = VOLATILE_DURABILITY_QOS;
-        participant_stateless_message_writer_->matched_reader_add(temp_stateless_reader_proxy_data_);
+        auto temp_stateless_reader_proxy_data_ = get_temporary_reader_proxies_pool().get();
+
+        temp_stateless_reader_proxy_data_->clear();
+        temp_stateless_reader_proxy_data_->m_expectsInlineQos = false;
+        temp_stateless_reader_proxy_data_->guid().guidPrefix = participant_data.m_guid.guidPrefix;
+        temp_stateless_reader_proxy_data_->guid().entityId = participant_stateless_message_reader_entity_id;
+        temp_stateless_reader_proxy_data_->set_remote_locators(participant_data.metatraffic_locators, network, false);
+        temp_stateless_reader_proxy_data_->topicKind(NO_KEY);
+        temp_stateless_reader_proxy_data_->m_qos.m_reliability.kind = BEST_EFFORT_RELIABILITY_QOS;
+        temp_stateless_reader_proxy_data_->m_qos.m_durability.kind = VOLATILE_DURABILITY_QOS;
+        participant_stateless_message_writer_->matched_reader_add(*temp_stateless_reader_proxy_data_);
     }
 }
 
@@ -2091,29 +2115,33 @@ void SecurityManager::match_builtin_key_exchange_endpoints(
     if (participant_volatile_message_secure_reader_ != nullptr &&
             builtin_endpoints & BUILTIN_ENDPOINT_PARTICIPANT_VOLATILE_MESSAGE_SECURE_WRITER)
     {
-        temp_volatile_writer_proxy_data_.clear();
-        temp_volatile_writer_proxy_data_.guid().guidPrefix = participant_data.m_guid.guidPrefix;
-        temp_volatile_writer_proxy_data_.guid().entityId = participant_volatile_message_secure_writer_entity_id;
-        temp_volatile_writer_proxy_data_.persistence_guid(temp_volatile_writer_proxy_data_.guid());
-        temp_volatile_writer_proxy_data_.set_remote_locators(participant_data.metatraffic_locators, network, false);
-        temp_volatile_writer_proxy_data_.topicKind(NO_KEY);
-        temp_volatile_writer_proxy_data_.m_qos.m_reliability.kind = RELIABLE_RELIABILITY_QOS;
-        temp_volatile_writer_proxy_data_.m_qos.m_durability.kind = VOLATILE_DURABILITY_QOS;
-        participant_volatile_message_secure_reader_->matched_writer_add(temp_volatile_writer_proxy_data_);
+        auto temp_volatile_writer_proxy_data_ = get_temporary_writer_proxies_pool().get();
+
+        temp_volatile_writer_proxy_data_->clear();
+        temp_volatile_writer_proxy_data_->guid().guidPrefix = participant_data.m_guid.guidPrefix;
+        temp_volatile_writer_proxy_data_->guid().entityId = participant_volatile_message_secure_writer_entity_id;
+        temp_volatile_writer_proxy_data_->persistence_guid(temp_volatile_writer_proxy_data_->guid());
+        temp_volatile_writer_proxy_data_->set_remote_locators(participant_data.metatraffic_locators, network, false);
+        temp_volatile_writer_proxy_data_->topicKind(NO_KEY);
+        temp_volatile_writer_proxy_data_->m_qos.m_reliability.kind = RELIABLE_RELIABILITY_QOS;
+        temp_volatile_writer_proxy_data_->m_qos.m_durability.kind = VOLATILE_DURABILITY_QOS;
+        participant_volatile_message_secure_reader_->matched_writer_add(*temp_volatile_writer_proxy_data_);
     }
 
     if (participant_volatile_message_secure_writer_ != nullptr &&
             builtin_endpoints & BUILTIN_ENDPOINT_PARTICIPANT_VOLATILE_MESSAGE_SECURE_READER)
     {
-        temp_volatile_reader_proxy_data_.clear();
-        temp_volatile_reader_proxy_data_.m_expectsInlineQos = false;
-        temp_volatile_reader_proxy_data_.guid().guidPrefix = participant_data.m_guid.guidPrefix;
-        temp_volatile_reader_proxy_data_.guid().entityId = participant_volatile_message_secure_reader_entity_id;
-        temp_volatile_reader_proxy_data_.set_remote_locators(participant_data.metatraffic_locators, network, false);
-        temp_volatile_reader_proxy_data_.topicKind(NO_KEY);
-        temp_volatile_reader_proxy_data_.m_qos.m_reliability.kind = RELIABLE_RELIABILITY_QOS;
-        temp_volatile_reader_proxy_data_.m_qos.m_durability.kind = VOLATILE_DURABILITY_QOS;
-        participant_volatile_message_secure_writer_->matched_reader_add(temp_volatile_reader_proxy_data_);
+        auto temp_volatile_reader_proxy_data_ = get_temporary_reader_proxies_pool().get();
+
+        temp_volatile_reader_proxy_data_->clear();
+        temp_volatile_reader_proxy_data_->m_expectsInlineQos = false;
+        temp_volatile_reader_proxy_data_->guid().guidPrefix = participant_data.m_guid.guidPrefix;
+        temp_volatile_reader_proxy_data_->guid().entityId = participant_volatile_message_secure_reader_entity_id;
+        temp_volatile_reader_proxy_data_->set_remote_locators(participant_data.metatraffic_locators, network, false);
+        temp_volatile_reader_proxy_data_->topicKind(NO_KEY);
+        temp_volatile_reader_proxy_data_->m_qos.m_reliability.kind = RELIABLE_RELIABILITY_QOS;
+        temp_volatile_reader_proxy_data_->m_qos.m_durability.kind = VOLATILE_DURABILITY_QOS;
+        participant_volatile_message_secure_writer_->matched_reader_add(*temp_volatile_reader_proxy_data_);
     }
 }
 
@@ -2480,32 +2508,6 @@ bool SecurityManager::get_datawriter_sec_attributes(
             returned_value = false;
         }
     }
-    else
-    {
-        // Get properties.
-        const std::string* property_value = PropertyPolicyHelper::find_property(writer_properties,
-                        "rtps.endpoint.submessage_protection_kind");
-
-        if (property_value != nullptr && property_value->compare("ENCRYPT") == 0)
-        {
-            security_attributes.is_submessage_protected = true;
-            security_attributes.plugin_endpoint_attributes |=
-                    PLUGIN_ENDPOINT_SECURITY_ATTRIBUTES_FLAG_IS_VALID |
-                    PLUGIN_ENDPOINT_SECURITY_ATTRIBUTES_FLAG_IS_SUBMESSAGE_ENCRYPTED;
-        }
-
-        property_value = PropertyPolicyHelper::find_property(writer_properties,
-                        "rtps.endpoint.payload_protection_kind");
-
-        if (property_value != nullptr && property_value->compare("ENCRYPT") == 0)
-        {
-            security_attributes.is_payload_protected = true;
-            security_attributes.is_key_protected = true;
-            security_attributes.plugin_endpoint_attributes |=
-                    PLUGIN_ENDPOINT_SECURITY_ATTRIBUTES_FLAG_IS_VALID |
-                    PLUGIN_ENDPOINT_SECURITY_ATTRIBUTES_FLAG_IS_PAYLOAD_ENCRYPTED;
-        }
-    }
 
     return returned_value;
 }
@@ -2688,32 +2690,6 @@ bool SecurityManager::get_datareader_sec_attributes(
             returned_value = false;
         }
     }
-    else
-    {
-        // Get properties.
-        const std::string* property_value = PropertyPolicyHelper::find_property(reader_properties,
-                        "rtps.endpoint.submessage_protection_kind");
-
-        if (property_value != nullptr && property_value->compare("ENCRYPT") == 0)
-        {
-            security_attributes.is_submessage_protected = true;
-            security_attributes.plugin_endpoint_attributes |=
-                    PLUGIN_ENDPOINT_SECURITY_ATTRIBUTES_FLAG_IS_VALID |
-                    PLUGIN_ENDPOINT_SECURITY_ATTRIBUTES_FLAG_IS_SUBMESSAGE_ENCRYPTED;
-        }
-
-        property_value = PropertyPolicyHelper::find_property(reader_properties,
-                        "rtps.endpoint.payload_protection_kind");
-
-        if (property_value != nullptr && property_value->compare("ENCRYPT") == 0)
-        {
-            security_attributes.is_payload_protected = true;
-            security_attributes.is_key_protected = true;
-            security_attributes.plugin_endpoint_attributes |=
-                    PLUGIN_ENDPOINT_SECURITY_ATTRIBUTES_FLAG_IS_VALID |
-                    PLUGIN_ENDPOINT_SECURITY_ATTRIBUTES_FLAG_IS_PAYLOAD_ENCRYPTED;
-        }
-    }
 
     return returned_value;
 }
@@ -2863,6 +2839,7 @@ bool SecurityManager::discovered_reader(
     PermissionsHandle* remote_permissions = nullptr;
     std::shared_ptr<ParticipantCryptoHandle> remote_participant_crypto_handle;
     std::shared_ptr<SecretHandle> shared_secret_handle;
+    AuthenticationStatus auth_status(AUTHENTICATION_INIT);
 
     if (!security_attributes.match(remote_reader_data.security_attributes_,
             remote_reader_data.plugin_security_attributes_))
@@ -2883,6 +2860,7 @@ bool SecurityManager::discovered_reader(
             remote_permissions = dp_it->second->get_permissions_handle();
             remote_participant_crypto_handle = dp_it->second->get_participant_crypto();
             shared_secret_handle = dp_it->second->get_shared_secret();
+            auth_status = dp_it->second->get_auth_status();
         }
     }
 
@@ -2893,13 +2871,25 @@ bool SecurityManager::discovered_reader(
     bool returned_value = true;
     SecurityException exception;
 
-    if (!is_builtin && access_plugin_ != nullptr && remote_permissions != nullptr)
+    if (!is_builtin)
     {
-        if ((returned_value = access_plugin_->check_remote_datareader(
-                    *remote_permissions, domain_id_, remote_reader_data, relay_only, exception)) == false)
+        //! Check if it is an unathenticated participant
+        if (participant_->security_attributes().allow_unauthenticated_participants &&
+                auth_status != AUTHENTICATION_NOT_AVAILABLE && auth_status != AUTHENTICATION_OK &&
+                (security_attributes.is_write_protected || security_attributes.is_read_protected))
         {
-            EPROSIMA_LOG_ERROR(SECURITY, "Error checking create remote reader " << remote_reader_data.guid()
-                                                                                << " (" << exception.what() << ")");
+            //!Do not match if read or write protection is enabled for this local endpoint
+            return false;
+        }
+
+        if (access_plugin_ != nullptr && remote_permissions != nullptr)
+        {
+            if ((returned_value = access_plugin_->check_remote_datareader(
+                        *remote_permissions, domain_id_, remote_reader_data, relay_only, exception)) == false)
+            {
+                EPROSIMA_LOG_ERROR(SECURITY, "Error checking create remote reader " << remote_reader_data.guid()
+                                                                                    << " (" << exception.what() << ")");
+            }
         }
     }
 
@@ -3120,6 +3110,8 @@ bool SecurityManager::discovered_reader(
 
                 remote_reader_pending_discovery_messages_.push_back(std::make_tuple(remote_reader_data,
                         remote_participant_key, writer_guid));
+
+                returned_value = true;
             }
         }
         else
@@ -3211,6 +3203,7 @@ bool SecurityManager::discovered_writer(
     PermissionsHandle* remote_permissions = nullptr;
     std::shared_ptr<ParticipantCryptoHandle> remote_participant_crypto_handle;
     std::shared_ptr<SecretHandle> shared_secret_handle;
+    AuthenticationStatus auth_status(AUTHENTICATION_INIT);
 
     if (!security_attributes.match(remote_writer_data.security_attributes_,
             remote_writer_data.plugin_security_attributes_))
@@ -3231,6 +3224,7 @@ bool SecurityManager::discovered_writer(
             remote_permissions = dp_it->second->get_permissions_handle();
             remote_participant_crypto_handle = dp_it->second->get_participant_crypto();
             shared_secret_handle = dp_it->second->get_shared_secret();
+            auth_status = dp_it->second->get_auth_status();
         }
     }
 
@@ -3240,13 +3234,25 @@ bool SecurityManager::discovered_writer(
     bool returned_value = true;
     SecurityException exception;
 
-    if (!is_builtin && access_plugin_ != nullptr && remote_permissions != nullptr)
+    if (!is_builtin)
     {
-        if ((returned_value = access_plugin_->check_remote_datawriter(
-                    *remote_permissions, domain_id_, remote_writer_data, exception)) == false)
+        //! Check if it is an unathenticated participant
+        if (participant_->security_attributes().allow_unauthenticated_participants &&
+                auth_status != AUTHENTICATION_NOT_AVAILABLE && auth_status != AUTHENTICATION_OK &&
+                (security_attributes.is_write_protected || security_attributes.is_read_protected))
         {
-            EPROSIMA_LOG_ERROR(SECURITY, "Error checking create remote writer " << remote_writer_data.guid()
-                                                                                << " (" << exception.what() << ")");
+            //!Do not match if read or write protection is enabled for this local endpoint
+            return false;
+        }
+
+        if (access_plugin_ != nullptr && remote_permissions != nullptr)
+        {
+            if ((returned_value = access_plugin_->check_remote_datawriter(
+                        *remote_permissions, domain_id_, remote_writer_data, exception)) == false)
+            {
+                EPROSIMA_LOG_ERROR(SECURITY, "Error checking create remote writer " << remote_writer_data.guid()
+                                                                                    << " (" << exception.what() << ")");
+            }
         }
     }
 
@@ -3469,6 +3475,8 @@ bool SecurityManager::discovered_writer(
 
                 remote_writer_pending_discovery_messages_.push_back(std::make_tuple(remote_writer_data,
                         remote_participant_key, reader_guid));
+
+                returned_value = true;
             }
         }
         else
@@ -4046,29 +4054,15 @@ bool SecurityManager::participant_authorized(
             match_builtin_key_exchange_endpoints(participant_data);
         }
 
-        participant_->pdpsimple()->notifyAboveRemoteEndpoints(participant_data);
-
-        EPROSIMA_LOG_INFO(SECURITY, "Participant " << participant_data.m_guid << " authenticated");
-
-        // Inform user about authenticated remote participant.
-        if (participant_->getListener() != nullptr)
-        {
-            ParticipantAuthenticationInfo info;
-            info.status = ParticipantAuthenticationInfo::AUTHORIZED_PARTICIPANT;
-            info.guid = participant_data.m_guid;
-            participant_->getListener()->onParticipantAuthentication(
-                participant_->getUserRTPSParticipant(), std::move(info));
-        }
-
         for (auto& remote_reader : temp_readers)
         {
-            participant_->pdpsimple()->getEDP()->pairing_reader_proxy_with_local_writer(remote_reader.second,
+            participant_->pdp()->getEDP()->pairing_reader_proxy_with_local_writer(remote_reader.second,
                     participant_data.m_guid, remote_reader.first);
         }
 
         for (auto& remote_writer : temp_writers)
         {
-            participant_->pdpsimple()->getEDP()->pairing_writer_proxy_with_local_reader(remote_writer.second,
+            participant_->pdp()->getEDP()->pairing_writer_proxy_with_local_reader(remote_writer.second,
                     participant_data.m_guid, remote_writer.first);
         }
 
@@ -4076,6 +4070,24 @@ bool SecurityManager::participant_authorized(
     }
 
     return false;
+}
+
+void SecurityManager::notify_participant_authorized(
+        const ParticipantProxyData& participant_data)
+{
+    participant_->pdp()->notifyAboveRemoteEndpoints(participant_data, true);
+
+    EPROSIMA_LOG_INFO(SECURITY, "Participant " << participant_data.m_guid << " authenticated");
+
+    // Inform user about authenticated remote participant.
+    if (participant_->getListener() != nullptr)
+    {
+        ParticipantAuthenticationInfo info;
+        info.status = ParticipantAuthenticationInfo::AUTHORIZED_PARTICIPANT;
+        info.guid = participant_data.m_guid;
+        participant_->getListener()->onParticipantAuthentication(
+            participant_->getUserRTPSParticipant(), std::move(info));
+    }
 }
 
 uint32_t SecurityManager::calculate_extra_size_for_rtps_message() const
@@ -4178,25 +4190,89 @@ void SecurityManager::resend_handshake_message_token(
 
         if (remote_participant_info)
         {
-            if (remote_participant_info->change_sequence_number_ != SequenceNumber_t::unknown())
+            if (remote_participant_info->handshake_requests_sent_ >= DiscoveredParticipantInfo::MAX_HANDSHAKE_REQUESTS)
             {
-                CacheChange_t* p_change = participant_stateless_message_writer_history_->remove_change_and_reuse(
-                    remote_participant_info->change_sequence_number_);
-                remote_participant_info->change_sequence_number_ = SequenceNumber_t::unknown();
-
-                if (p_change != nullptr)
+                SecurityException exception;
+                remote_participant_info->event_->cancel_timer();
+                on_validation_failed(dp_it->second->participant_data(), exception);
+            }
+            else
+            {
+                if (remote_participant_info->change_sequence_number_ != SequenceNumber_t::unknown())
                 {
-                    EPROSIMA_LOG_INFO(SECURITY, "Authentication handshake resent to participant " <<
-                            remote_participant_key);
-                    if (participant_stateless_message_writer_history_->add_change(p_change))
+                    CacheChange_t* p_change = participant_stateless_message_writer_history_->remove_change_and_reuse(
+                        remote_participant_info->change_sequence_number_);
+                    remote_participant_info->change_sequence_number_ = SequenceNumber_t::unknown();
+
+                    if (p_change != nullptr)
                     {
-                        remote_participant_info->change_sequence_number_ = p_change->sequenceNumber;
+                        EPROSIMA_LOG_INFO(SECURITY, "Authentication handshake resent to participant " <<
+                                remote_participant_key);
+                        if (participant_stateless_message_writer_history_->add_change(p_change))
+                        {
+                            remote_participant_info->change_sequence_number_ = p_change->sequenceNumber;
+                            remote_participant_info->handshake_requests_sent_++;
+                        }
+                        //TODO (Ricardo) What to do if not added?
                     }
-                    //TODO (Ricardo) What to do if not added?
+                }
+
+                if (remote_participant_info->auth_status_ == AUTHENTICATION_WAITING_REPLY)
+                {
+                    // Avoid DoS attack by exponentially increasing event interval
+                    auto time_ms = remote_participant_info->event_->getIntervalMilliSec();
+                    remote_participant_info->event_->update_interval_millisec(time_ms * 2);
+                    remote_participant_info->event_->restart_timer();
                 }
             }
 
             dp_it->second->set_auth(remote_participant_info);
         }
     }
+}
+
+void SecurityManager::on_validation_failed(
+        const ParticipantProxyData& participant_data,
+        const SecurityException& exception) const
+{
+    if (participant_->security_attributes().allow_unauthenticated_participants)
+    {
+        participant_->pdp()->notifyAboveRemoteEndpoints(participant_data, false);
+    }
+
+    if (strlen(exception.what()) > 0)
+    {
+        EPROSIMA_LOG_ERROR(SECURITY_AUTHENTICATION, exception.what());
+    }
+
+    EPROSIMA_LOG_INFO(SECURITY, "Authentication failed for participant " <<
+            participant_data.m_guid);
+
+    // Inform user about authenticated remote participant.
+    if (participant_->getListener() != nullptr)
+    {
+        ParticipantAuthenticationInfo info;
+        info.status = ParticipantAuthenticationInfo::UNAUTHORIZED_PARTICIPANT;
+        info.guid = participant_data.m_guid;
+        participant_->getListener()->onParticipantAuthentication(
+            participant_->getUserRTPSParticipant(), std::move(info));
+    }
+}
+
+bool SecurityManager::DiscoveredParticipantInfo::check_guid_comes_from(
+        Authentication* const auth_plugin,
+        const GUID_t& adjusted,
+        const GUID_t& original)
+{
+    bool ret = false;
+    if (auth_plugin != nullptr)
+    {
+        std::lock_guard<std::mutex> g(mtx_);
+
+        if (nullptr != auth_ && AuthenticationStatus::AUTHENTICATION_OK == auth_->auth_status_)
+        {
+            ret = auth_plugin->check_guid_comes_from(auth_->identity_handle_, adjusted, original);
+        }
+    }
+    return ret;
 }

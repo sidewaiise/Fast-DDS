@@ -54,7 +54,8 @@ public:
             const RTPSReliableWriterQos& b) const
     {
         return (this->times == b.times) &&
-               (this->disable_positive_acks == b.disable_positive_acks);
+               (this->disable_positive_acks == b.disable_positive_acks) &&
+               (this->disable_heartbeat_piggyback == b.disable_heartbeat_piggyback);
     }
 
     //!Writer Timing Attributes
@@ -775,6 +776,7 @@ public:
      * Getter for ThroughputControllerDescriptor
      *
      * @return ThroughputControllerDescriptor reference
+     * @deprecated Use flow_controllers() on DomainParticipantQoS
      */
     RTPS_DllAPI fastrtps::rtps::ThroughputControllerDescriptor& throughput_controller()
     {
@@ -785,6 +787,7 @@ public:
      * Getter for ThroughputControllerDescriptor
      *
      * @return ThroughputControllerDescriptor reference
+     * @deprecated Use flow_controllers() on DomainParticipantQoS
      */
     RTPS_DllAPI const fastrtps::rtps::ThroughputControllerDescriptor& throughput_controller() const
     {
@@ -795,6 +798,7 @@ public:
      * Setter for ThroughputControllerDescriptor
      *
      * @param throughput_controller new value for the ThroughputControllerDescriptor
+     * @deprecated Use flow_controllers() on DomainParticipantQoS
      */
     RTPS_DllAPI void throughput_controller(
             const fastrtps::rtps::ThroughputControllerDescriptor& throughput_controller)
