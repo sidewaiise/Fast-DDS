@@ -31,19 +31,31 @@
 #include <unistd.h>
 #endif // if defined(_WIN32)
 
-#include "../types/HelloWorldPubSubTypes.h"
-#include "../types/FixedSizedPubSubTypes.h"
-#include "../types/KeyedHelloWorldPubSubTypes.h"
-#include "../types/StringTestPubSubTypes.h"
-#include "../types/Data64kbPubSubTypes.h"
-#include "../types/Data1mbPubSubTypes.h"
-#include "../types/KeyedData1mbPubSubTypes.h"
+#include "../types/Data1mbPubSubTypes.hpp"
+#include "../types/Data64kbPubSubTypes.hpp"
+#include "../types/FixedSizedPubSubTypes.hpp"
+#include "../types/HelloWorldPubSubTypes.hpp"
+#include "../types/KeyedData1mbPubSubTypes.hpp"
+#include "../types/KeyedHelloWorldPubSubTypes.hpp"
+#include "../types/core/core_typesPubSubTypes.hpp"
+#include "../types/StringTestPubSubTypes.hpp"
+#include "../types/UnboundedHelloWorldPubSubTypes.hpp"
 
 #include <algorithm>
 #include <cstddef>
 #include <iostream>
 #include <list>
 #include <functional>
+
+namespace eprosima {
+namespace fastdds {
+namespace rtps {
+
+struct BuiltinTopicKey_t;
+
+} // namespace rtps
+} // namespace fastdds
+} // namespace eprosima
 
 #if HAVE_SECURITY
 extern void blackbox_security_init();
@@ -52,6 +64,7 @@ extern void blackbox_security_init();
 extern void tls_init();
 #endif // if TLS_FOUND
 
+extern const char* certs_path;
 extern uint16_t global_port;
 extern bool enable_datasharing;
 extern bool use_pull_mode;
@@ -144,6 +157,10 @@ std::list<KeyedHelloWorld> default_keyedhelloworld_data_generator(
         size_t max = 0,
         bool unique_key = false);
 
+std::list<KeyedHelloWorld> default_keyedhelloworld_per_participant_data_generator(
+        size_t participants,
+        size_t max = 0);
+
 std::list<StringTest> default_large_string_data_generator(
         size_t max = 0);
 
@@ -163,6 +180,9 @@ std::list<Data1mb> default_data96kb_data300kb_data_generator(
         size_t max = 0);
 
 std::list<KeyedData1mb> default_keyeddata300kb_data_generator(
+        size_t max = 0);
+
+std::list<UnboundedHelloWorld> default_unbounded_helloworld_data_generator(
         size_t max = 0);
 
 /****** Auxiliary lambda functions  ******/
@@ -192,5 +212,16 @@ void print_non_received_messages(
 }
 
 /***** End auxiliary lambda function *****/
+
+/****** Auxiliary conversion helpers *******/
+void entity_id_to_builtin_topic_key(
+        eprosima::fastdds::rtps::BuiltinTopicKey_t& bt_key,
+        const eprosima::fastdds::rtps::EntityId_t& entity_id);
+
+void guid_prefix_to_builtin_topic_key(
+        eprosima::fastdds::rtps::BuiltinTopicKey_t& bt_key,
+        const eprosima::fastdds::rtps::GuidPrefix_t& guid_prefix);
+
+/****** End Auxiliary conversion helpers *******/
 
 #endif // __BLACKBOX_BLACKBOXTESTS_HPP__
