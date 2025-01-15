@@ -19,6 +19,12 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
+filegroup(
+    name = "include",
+    srcs = glob(["include/**"], allow_empty=True),
+    visibility = ["//visibility:public"],
+)
+
 cmake(
     name = "fastdds",
     cache_entries = {
@@ -32,7 +38,6 @@ cmake(
         "@fastcdr//:fastcdr",
         "@asio//:asio",
         "@tinyxml2//:tinyxml2",
-        "@openssl//:openssl",
         "@foonathan_memory//:foonathan_memory"
     ]
 )
