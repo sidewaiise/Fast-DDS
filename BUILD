@@ -27,18 +27,7 @@ cmake(
         "BUILD_SHARED_LIBS": "OFF"
     },
     lib_source = "//:fastdds_srcs",
-    out_static_libs = select({
-        "@bazel_tools//src/conditions:linux": [
-            "libfastdds.a"
-        ],
-        "@bazel_tools//src/conditions:linux_x86_64": [
-            "libfastdds.a"
-        ],
-        "@bazel_tools//src/conditions:darwin": [
-            "libfastdds.a"
-        ],
-        "//conditions:default": [],
-    }),
+    out_static_libs = ["libfastdds.a"],
     deps = [
         "@fastcdr//:fastcdr",
         "@asio//:asio",
